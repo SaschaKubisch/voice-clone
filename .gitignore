@@ -1,0 +1,13 @@
+# Python environment, recreated from requirements.txt
+.venv/
+__pycache__/
+
+# Voice recordings and generated audio stay on this machine.
+# A recording of a voice is enough to clone it.
+*.wav
+voices/*
+!voices/me.txt
+outputs/
+
+*.log
+.DS_Store
