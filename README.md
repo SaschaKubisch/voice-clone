@@ -18,10 +18,10 @@ uv pip install --python .venv/bin/python -r requirements.txt
 Double-click `start.command` in Finder, or run `.venv/bin/python app.py`. The browser opens at http://127.0.0.1:7860. The server listens on this machine only.
 
 - **Record voice**: shows `voice-script.md`. Read it in one take (see below) or upload a recording, give the voice a name, check the transcript, save it to `voices/<name>.wav` and `voices/<name>.txt`.
-- **Speak**: pick a saved voice and a mode, type text, choose the output folder with the native folder picker, generate, play the result.
+- **Speak**: pick a saved voice, a mode and a precision, type text, choose the output folder with the native folder picker, generate, play the result.
 - **Files**: list, play and reveal in Finder the audio files of the output folder.
 
-The model loads on the first generation and stays loaded until the app stops.
+The model loads on the first generation and stays loaded until the app stops. Changing Precision frees the loaded model and loads it again in the new precision on the next Generate.
 
 ## Recording the voice
 
@@ -50,6 +50,7 @@ bash record.sh voices/other.wav 150                      # another file name and
 .venv/bin/python -c "from app import script_transcript as s; print(s('voice-script.md'))" > voices/me.txt
 .venv/bin/python clone.py --ref voices/me.wav --ref-text-file voices/me.txt --text "Hello." --out outputs/hello.wav
 .venv/bin/python clone.py --ref voices/me.wav            # type one line per clip; an empty line ends
+.venv/bin/python clone.py --ref voices/me.wav --dtype float32 --text "Hello."   # float32 instead of the default float16
 .venv/bin/python demo.py mps                             # speech without cloning, as an install check
 ```
 
@@ -63,6 +64,11 @@ Voice recordings, generated audio and the Python environment are ignored (`.giti
 
 ## Memory
 
-The model needs about 9 GB of memory at the float32 precision it uses on Apple Silicon. On a 16 GB Mac with other applications open, macOS moves memory to swap and model load plus one short sentence can take several minutes. Close other applications before generating. Use `--device cpu` (command line) if MPS reports an error.
+Precision. The model runs in float16 by default (`--dtype` in `clone.py`, Precision in the Speak tab). voxcpm 2.0.3 would use float32 on Apple Silicon, because bfloat16 gave noise there; `voxcpm_patch.py` selects float16 through the variable voxcpm reads for this (`VOXCPM_MPS_DTYPE`). The language models, the diffusion decoder, the projections and the caches run in float16. The audio VAE stays float32. Measured on this 16 GB Mac with other applications open, with a 20 s reference and a sentence of about 4 s:
+
+- float16: loads in 27-34 s (four runs). GPU memory (`torch.mps.driver_allocated_memory`) is 5.6 GiB after loading and 6.8 GiB after generating. The first clip takes 14-16 s (four runs); a later clip with the same voice took 9 s (one run).
+- float32: loads in 155 s (one run). GPU memory is 9.6 GiB after loading and 11.8 GiB after generating. The clip took 202 s, and macOS swap use rose from 6.9 to 9.9 GB during the run.
+
+An ASR model (SenseVoiceSmall) transcribed both outputs as "the quick brown fox jumps over the lazy dog near the riverbank". Loading float16 still peaks at about 10 GiB (process footprint), because voxcpm builds the model in float32 on the CPU first and then casts it (read from its source; the peak itself was measured). `tests/test_fp16_audio.py` checks that the float16 output is speech. The precision setting only applies on MPS. Close other applications before generating. Use `--device cpu` (command line) if MPS reports an error.
 
 A long reference, such as the 3-minute take, is encoded in 20-second pieces to fit in memory, and once per app run instead of on every generation (`voxcpm_patch.py`, applied by `app.py` and `clone.py`). `tests/test_chunked_encode.py` checks that the pieces give the same result as encoding the whole recording.

@@ -20,8 +20,19 @@ frames as one patch, so one model position covers 2560 samples. Piece borders an
 lengths are whole patches, so every piece starts on both grids and the strided convolutions
 see the same sample phase as in a single pass.
 
-Use:  model = voxcpm_patch.apply(VoxCPM.from_pretrained(...))
+Precision. voxcpm 2.0.3 loads the model in float32 on Apple Silicon, because bfloat16 gave noise
+there (voxcpm issue 301). load_model(dtype) can load it in float16 instead: the library reads the
+environment variable VOXCPM_MPS_DTYPE inside pick_runtime_dtype, and load_model sets it around the
+load. Which parts run in which dtype is listed in describe_dtypes(). In float16 the language
+models, the local encoder, the diffusion decoder, the projections, the rotary tables and the KV
+caches are float16. The audio VAE stays float32: voxcpm casts it back after the model is cast, and
+converts the latents to float32 before decoding. tests/test_fp16_audio.py checks that this mix
+makes speech.
+
+Use:  model = voxcpm_patch.load_model("float16")     # loads, patches the reference encoding
+      del model; voxcpm_patch.release()               # frees the memory before loading another
 """
+import contextlib
 import gc
 import os
 import threading
@@ -33,6 +44,10 @@ CHUNK_SECONDS = 20.0  # audio whose latents are kept per piece
 CONTEXT_LEFT_SECONDS = 3.0  # extra audio read before a piece
 CONTEXT_RIGHT_SECONDS = 1.0  # extra audio read after a piece
 CACHE_ENTRIES = 4  # a voice uses two entries: reference (right padding) and prompt (left padding)
+
+DTYPES = ("float32", "float16")
+DEFAULT_DTYPE = "float16"  # measured: speech in float16, about half the memory of float32 (README)
+MODEL_ID = "openbmb/VoxCPM2"
 
 
 def _release_memory(device):
@@ -157,3 +172,78 @@ def apply(model):
     patch_vae(tts.audio_vae, tts.patch_size)
     patch_encode_cache(tts)
     return model
+
+
+# ---------------------------------------------------------------- precision
+
+@contextlib.contextmanager
+def _mps_dtype(dtype):
+    """Set VOXCPM_MPS_DTYPE (read by voxcpm's pick_runtime_dtype on MPS) and restore it afterwards."""
+    name = "VOXCPM_MPS_DTYPE"
+    before = os.environ.get(name)
+    os.environ[name] = dtype
+    try:
+        yield
+    finally:
+        if before is None:
+            os.environ.pop(name, None)
+        else:
+            os.environ[name] = before
+
+
+def load_model(dtype=DEFAULT_DTYPE, device="mps", load_denoiser=False):
+    """Load VoxCPM2 in the given precision and apply the reference-encoding patch.
+
+    dtype is "float32" or "float16". It only changes anything on MPS; on other devices voxcpm
+    keeps its own choice.
+    """
+    if dtype not in DTYPES:
+        raise ValueError(f"dtype must be one of {DTYPES}, got {dtype!r}")
+    from voxcpm import VoxCPM
+
+    with _mps_dtype(dtype):
+        model = VoxCPM.from_pretrained(MODEL_ID, load_denoiser=load_denoiser, optimize=False, device=device)
+    apply(model)
+    return model
+
+
+def _parameter_dtype(module):
+    seen = {p.dtype for p in module.parameters()}
+    return ", ".join(sorted(str(d).replace("torch.", "") for d in seen)) or "no parameters"
+
+
+def describe_dtypes(model):
+    """Return {part: dtype text} for the loaded model: weights, the KV caches and the rotary tables."""
+    from voxcpm.modules.minicpm4.model import MiniCPMLongRoPE
+
+    tts = getattr(model, "tts_model", model)
+    parts = {
+        "language model (base_lm)": _parameter_dtype(tts.base_lm),
+        "residual language model": _parameter_dtype(tts.residual_lm),
+        "local encoder (feat_encoder)": _parameter_dtype(tts.feat_encoder),
+        "diffusion decoder (feat_decoder)": _parameter_dtype(tts.feat_decoder),
+        "projections, quantizer, stop head": ", ".join(sorted({
+            str(p.dtype).replace("torch.", "")
+            for name in ("fsq_layer", "enc_to_lm_proj", "lm_to_dit_proj", "res_to_dit_proj", "fusion_concat_proj", "stop_proj", "stop_head")
+            for p in getattr(tts, name).parameters()
+        })),
+        "audio VAE (encode and decode)": _parameter_dtype(tts.audio_vae),
+        "KV cache (base_lm)": str(tts.base_lm.kv_cache.kv_cache.dtype).replace("torch.", ""),
+        "KV cache (residual lm)": str(tts.residual_lm.kv_cache.kv_cache.dtype).replace("torch.", ""),
+    }
+    ropes = {str(m.cos_cached.dtype).replace("torch.", "") for m in tts.modules() if isinstance(m, MiniCPMLongRoPE)}
+    parts["rotary tables"] = ", ".join(sorted(ropes))
+    return parts
+
+
+def release():
+    """Free the memory of a model whose last reference the caller has just dropped (del model).
+
+    The patched methods refer to the model they belong to, so a model is only freed by a garbage
+    collection, not by the reference count. This runs the collection and then returns the GPU
+    buffers the allocator still holds to the system.
+    """
+    gc.collect()
+    if torch.backends.mps.is_available():
+        torch.mps.empty_cache()
+    gc.collect()

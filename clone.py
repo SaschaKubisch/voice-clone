@@ -17,6 +17,8 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 
 
 def build_parser():
+    from voxcpm_patch import DEFAULT_DTYPE, DTYPES  # imports torch only, not the model
+
     p = argparse.ArgumentParser(
         description="Clone a voice with VoxCPM2 and generate speech (model loaded once).",
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -38,6 +40,11 @@ def build_parser():
     p.add_argument("--out", metavar="PATH", help="output WAV for a single --text")
     p.add_argument("--out-dir", default=str(SCRIPT_DIR / "outputs"), metavar="DIR", help="output folder for multiple clips (default: outputs/ next to this script)")
     p.add_argument("--device", default="mps", help="mps, cpu, cuda, auto (default: mps)")
+    p.add_argument(
+        "--dtype", choices=DTYPES, default=DEFAULT_DTYPE,
+        help=f"model precision on mps (default: {DEFAULT_DTYPE}); float16 needs about half the memory of float32. "
+             "Other devices keep voxcpm's own choice.",
+    )
     p.add_argument("--cfg", type=float, default=2.0, help="CFG guidance scale, 1.0-3.0 recommended (default: 2.0)")
     p.add_argument("--steps", type=int, default=10, help="inference steps, 4-30 recommended (default: 10)")
     p.add_argument("--denoise", action="store_true", help="load the denoiser and denoise the reference audio")
@@ -91,19 +98,16 @@ def main():
 
     # Heavy imports after argument validation so --help and errors are fast.
     import soundfile as sf
-    from voxcpm import VoxCPM
-    from voxcpm_patch import apply as patch_reference_encoding
+    from voxcpm_patch import load_model
 
     t0 = time.time()
-    model = VoxCPM.from_pretrained(
-        "openbmb/VoxCPM2",
-        load_denoiser=args.denoise,
-        optimize=False,
-        device=args.device,
-    )
-    patch_reference_encoding(model)  # long references encoded in pieces, once per run
+    # Also patches the reference encoding: long references are encoded in pieces, once per run.
+    model = load_model(args.dtype, device=args.device, load_denoiser=args.denoise)
     sr = model.tts_model.sample_rate
-    print(f"model loaded on {model.tts_model.device} in {time.time() - t0:.1f} s", flush=True)
+    print(
+        f"model loaded on {model.tts_model.device} ({model.tts_model.config.dtype}) in {time.time() - t0:.1f} s",
+        flush=True,
+    )
 
     ref_path = str(Path(args.ref))
     if ref_text:

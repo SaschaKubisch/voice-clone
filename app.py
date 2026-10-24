@@ -4,8 +4,8 @@
 Start:  .venv/bin/python app.py     (serves http://127.0.0.1:7860 only)
 
 Tabs: Record voice (read voice-script.md in one take and save a voice to voices/), Speak
-(generate audio), Files (list and reveal generated audio). The model loads once per
-process, on the first Generate.
+(generate audio), Files (list and reveal generated audio). The model loads on the first Generate
+and stays loaded; changing Precision in the Speak tab unloads it and loads it again on the next Generate.
 """
 import os
 
@@ -22,6 +22,8 @@ from datetime import datetime
 from pathlib import Path
 
 import gradio as gr
+
+from voxcpm_patch import DEFAULT_DTYPE, DTYPES  # imports torch only, not the model
 
 APP_DIR = Path(__file__).resolve().parent
 VOICES_DIR = APP_DIR / "voices"
@@ -45,7 +47,11 @@ MODE_REFERENCE = "Recording only (allows style prefix)"
 # The folder is created on first use, so importing this module creates nothing.
 PLAYER_DIR = None
 
+# Measured on a 16 GB Mac with other applications open: float16 loads in about 30 s, float32 in 2-4 minutes.
+LOAD_HINT = {"float16": "about 1 minute", "float32": "2-4 minutes"}
+
 MODEL = None
+MODEL_DTYPE = None  # precision of the loaded model: "float32" or "float16"
 LOAD_SECONDS = None
 MODEL_LOCK = threading.Lock()
 # One worker: the model never runs two jobs at once.
@@ -128,19 +134,32 @@ def mmss(seconds):
 
 # ---------------------------------------------------------------- model
 
-def get_model():
-    """Load VoxCPM2 once per process (same call as clone.py). Runs in the worker thread."""
-    global MODEL, LOAD_SECONDS
+def unload_model():
+    """Drop the loaded model and give its memory back. Call with MODEL_LOCK held."""
+    global MODEL, MODEL_DTYPE
+    import voxcpm_patch
+
+    MODEL = None  # the only reference; release() then collects it and empties the GPU cache
+    MODEL_DTYPE = None
+    voxcpm_patch.release()
+
+
+def get_model(dtype):
+    """Load VoxCPM2 in the given precision (same call as clone.py). Runs in the worker thread.
+
+    A model loaded in another precision is freed first, so two copies are never in memory.
+    """
+    global MODEL, MODEL_DTYPE, LOAD_SECONDS
     with MODEL_LOCK:
+        if MODEL is not None and MODEL_DTYPE != dtype:
+            unload_model()
         if MODEL is None:
-            from voxcpm import VoxCPM
-            from voxcpm_patch import apply as patch_reference_encoding
+            import voxcpm_patch
 
             start = time.time()
-            MODEL = VoxCPM.from_pretrained(
-                "openbmb/VoxCPM2", load_denoiser=False, optimize=False, device="mps"
-            )
-            patch_reference_encoding(MODEL)  # long references encoded in pieces, once per run
+            # Also patches the reference encoding: long references encoded in pieces, once per run.
+            MODEL = voxcpm_patch.load_model(dtype, device="mps")
+            MODEL_DTYPE = dtype
             LOAD_SECONDS = time.time() - start
         return MODEL
 
@@ -242,7 +261,7 @@ def choose_folder(current):
     return result.stdout.strip().rstrip("/") or "/"
 
 
-def speak(voice, mode, text, cfg, steps, denoise, out_dir, file_name, per_line, progress=gr.Progress()):
+def speak(voice, mode, precision, text, cfg, steps, denoise, out_dir, file_name, per_line, progress=gr.Progress()):
     # Check everything cheap first, so a mistake does not cost a 4 minute model load.
     if per_line:
         texts = [ln.strip() for ln in (text or "").splitlines() if ln.strip()]
@@ -252,6 +271,8 @@ def speak(voice, mode, text, cfg, steps, denoise, out_dir, file_name, per_line, 
         raise gr.Error("Enter some text.")
     if voice not in voice_names():
         raise gr.Error(f"No voice named '{voice}'. Record one in the first tab, or press Refresh.")
+    if precision not in DTYPES:
+        raise gr.Error(f"Precision must be one of {', '.join(DTYPES)}.")
     ref = VOICES_DIR / f"{voice}.wav"
     voice_kwargs = {"reference_wav_path": str(ref)}
     if mode == MODE_TRANSCRIPT:
@@ -285,10 +306,13 @@ def speak(voice, mode, text, cfg, steps, denoise, out_dir, file_name, per_line, 
         except Exception as exc:
             raise gr.Error(f"{type(exc).__name__}: {exc}")
 
-    if MODEL is None:
-        yield gr.update(), "Loading the model. This takes 3-4 minutes the first time."
-        yield from wait(WORKER.submit(get_model), "Loading the model (3-4 minutes)", 0)
-        log.append(f"Model loaded in {mmss(LOAD_SECONDS)}.")
+    if MODEL is None or MODEL_DTYPE != precision:
+        if MODEL is not None:
+            log.append(f"Precision changed from {MODEL_DTYPE} to {precision}: the old model is freed first.")
+        hint = LOAD_HINT[precision]
+        yield gr.update(), "\n".join(log + [f"Loading the model in {precision}. This takes {hint}."])
+        yield from wait(WORKER.submit(get_model, precision), f"Loading the model in {precision} ({hint})", 0)
+        log.append(f"Model loaded in {precision} in {mmss(LOAD_SECONDS)}.")
     if denoise and MODEL.denoiser is None:
         yield from wait(WORKER.submit(attach_denoiser), "Loading the denoiser", 0)
         log.append("Denoiser loaded.")
@@ -299,7 +323,7 @@ def speak(voice, mode, text, cfg, steps, denoise, out_dir, file_name, per_line, 
             base = f"{custom}_{i:02d}" if total > 1 else custom
         else:
             base = auto_base(line, stamp, i if total > 1 else None)
-        label = f"Generating {i}/{total} (1.5-4.5 minutes each)"
+        label = f"Generating {i}/{total}"
         future = WORKER.submit(synthesize, line, voice_kwargs, cfg, steps, denoise, folder, base)
         path, seconds, elapsed = yield from wait(future, label, (i - 1) / total)
         log.append(f"Saved {path}  ({seconds:.1f} s of audio, generated in {elapsed:.1f} s)")
@@ -379,8 +403,10 @@ def build_ui():
 
             with gr.Tab("Speak"):
                 gr.Markdown(
-                    "The first Generate loads the model (3-4 minutes). Each clip then takes "
-                    "1.5-4.5 minutes. The status line below shows the elapsed time. Keep this page open."
+                    "The first Generate loads the model. A clip of a few seconds then takes about 10-15 s in "
+                    "float16 and several minutes in float32 on a 16 GB Mac (measured with a 20 s voice; "
+                    "longer texts take longer). The status line below shows the elapsed time. "
+                    "Keep this page open."
                 )
                 with gr.Row():
                     voice = gr.Dropdown(
@@ -389,6 +415,11 @@ def build_ui():
                     )
                     refresh_btn = gr.Button("Refresh voices", scale=1)
                 mode = gr.Radio([MODE_TRANSCRIPT, MODE_REFERENCE], value=MODE_TRANSCRIPT, label="Mode")
+                precision = gr.Radio(
+                    list(DTYPES), value=DEFAULT_DTYPE, label="Precision",
+                    info="float16 needs about half the memory of float32. Changing it unloads the model "
+                         "and loads it again on the next Generate.",
+                )
                 text = gr.Textbox(
                     label="Text to speak", lines=10,
                     info="In 'Recording only' mode, a prefix like (slower, warm) sets the style.",
@@ -428,7 +459,7 @@ def build_ui():
         refresh_btn.click(refresh_voices, [voice], [voice], api_name="refresh_voices")
         choose_btn.click(choose_folder, [out_dir], [out_dir], api_name="choose_folder")
         generate_btn.click(
-            speak, [voice, mode, text, cfg, steps, denoise, out_dir, file_name, per_line],
+            speak, [voice, mode, precision, text, cfg, steps, denoise, out_dir, file_name, per_line],
             [result_audio, speak_status], api_name="speak",
         )
         files_refresh_btn.click(list_files, [out_dir], [files_dd, files_status], api_name="list_files")
