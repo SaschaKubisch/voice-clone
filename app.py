@@ -3,8 +3,9 @@
 
 Start:  .venv/bin/python app.py     (serves http://127.0.0.1:7860 only)
 
-Tabs: Record voice (save a voice to voices/), Speak (generate audio), Files (list and
-reveal generated audio). The model loads once per process, on the first Generate.
+Tabs: Record voice (read voice-script.md in one take and save a voice to voices/), Speak
+(generate audio), Files (list and reveal generated audio). The model loads once per
+process, on the first Generate.
 """
 import os
 
@@ -25,16 +26,24 @@ import gradio as gr
 APP_DIR = Path(__file__).resolve().parent
 VOICES_DIR = APP_DIR / "voices"
 DEFAULT_OUT_DIR = APP_DIR / "outputs"
-PASSAGE_FILE = VOICES_DIR / "me.txt"
+SCRIPT_FILE = APP_DIR / "voice-script.md"
 FFMPEG = "/opt/homebrew/bin/ffmpeg" if Path("/opt/homebrew/bin/ffmpeg").exists() else shutil.which("ffmpeg")
 DENOISER_ID = "iic/speech_zipenhancer_ans_multiloss_16k_base"
+
+# Silence at both ends of a saved voice is cut to about 0.5 s; pauses inside the speech stay.
+# The ends are padded with 0.5 s first, so a recording with less silence still gets some.
+# The end is trimmed by reversing the audio, trimming its start, and reversing it back.
+_TRIM_START = "silenceremove=start_periods=1:start_duration=0.1:start_threshold=-50dB:start_silence=0.5"
+TRIM_FILTER = f"adelay=500:all=1,apad=pad_dur=0.5,{_TRIM_START},areverse,{_TRIM_START},areverse"
+MIN_SPEECH_SECONDS = 1.0
 
 MODE_TRANSCRIPT = "Recording + transcript (closest match)"
 MODE_REFERENCE = "Recording only (allows style prefix)"
 
 # Gradio only serves files from the working directory, the temp folder and allowed paths.
 # Audio players therefore get a copy in the temp folder, so any output folder works.
-PLAYER_DIR = Path(tempfile.mkdtemp(prefix="voice-ui-"))
+# The folder is created on first use, so importing this module creates nothing.
+PLAYER_DIR = None
 
 MODEL = None
 LOAD_SECONDS = None
@@ -84,9 +93,32 @@ def audio_seconds(path):
 
 
 def playable(path):
+    global PLAYER_DIR
+    if PLAYER_DIR is None:
+        PLAYER_DIR = Path(tempfile.mkdtemp(prefix="voice-ui-"))
     dest = PLAYER_DIR / Path(path).name
     shutil.copyfile(path, dest)
     return str(dest)
+
+
+def script_transcript(path):
+    """The spoken text of the recording script as one block, for the transcript box.
+
+    Dropped: the title, the intro paragraph (everything before the first '## ' heading),
+    every heading, and every italic '*...*' reading direction. The spoken paragraphs are
+    joined with single spaces.
+    """
+    path = Path(path)
+    if not path.is_file():
+        return ""
+    spoken, in_section = [], False
+    for line in path.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if line.startswith("## "):
+            in_section = True
+        elif in_section and line and not line.startswith("#") and not (line.startswith("*") and line.endswith("*")):
+            spoken.append(line)
+    return " ".join(" ".join(spoken).split())
 
 
 def mmss(seconds):
@@ -162,12 +194,16 @@ def save_voice(recording, name, transcript, overwrite):
     partial = VOICES_DIR / f".{name}.partial"  # convert first, so a failure keeps the old voice
     cmd = [
         FFMPEG, "-hide_banner", "-loglevel", "error", "-y", "-i", str(recording),
-        "-vn", "-ac", "1", "-ar", "48000", "-c:a", "pcm_s16le", "-f", "wav", str(partial),
+        "-vn", "-ac", "1", "-ar", "48000", "-af", TRIM_FILTER,
+        "-c:a", "pcm_s16le", "-f", "wav", str(partial),
     ]
     result = subprocess.run(cmd, capture_output=True, text=True)
     if result.returncode != 0:
         partial.unlink(missing_ok=True)
         raise gr.Error(f"ffmpeg failed: {result.stderr.strip()[-500:]}")
+    if audio_seconds(partial) < MIN_SPEECH_SECONDS:
+        partial.unlink(missing_ok=True)
+        raise gr.Error("No speech found: less than 1 s is left after the silence at both ends is cut. Check the microphone.")
     os.replace(partial, wav)
 
     transcript = (transcript or "").strip()
@@ -178,7 +214,7 @@ def save_voice(recording, name, transcript, overwrite):
         txt.unlink(missing_ok=True)
         note = "no transcript (only 'Recording only' mode will work)"
     seconds = audio_seconds(wav)
-    status = f"Saved {wav} ({seconds:.1f} s, mono 48 kHz 16-bit); {note}."
+    status = f"Saved {wav} ({seconds:.1f} s, mono 48 kHz 16-bit, silence at both ends cut to about 0.5 s); {note}."
     return status, playable(wav), f"{seconds:.1f} s", gr.update(choices=voice_names(), value=name)
 
 
@@ -302,7 +338,8 @@ def reveal_file(path):
 # ---------------------------------------------------------------- layout
 
 def build_ui():
-    passage = PASSAGE_FILE.read_text(encoding="utf-8").strip() if PASSAGE_FILE.is_file() else ""
+    script_md = SCRIPT_FILE.read_text(encoding="utf-8") if SCRIPT_FILE.is_file() else f"{SCRIPT_FILE.name} not found."
+    spoken_text = script_transcript(SCRIPT_FILE)
     voices = voice_names()
 
     with gr.Blocks(title="VoxCPM2 voice studio", analytics_enabled=False) as demo:
@@ -310,23 +347,33 @@ def build_ui():
 
         with gr.Tabs():
             with gr.Tab("Record voice"):
-                gr.Markdown("Record yourself reading the passage (about 20 seconds, quiet room), or upload a file.")
-                passage_box = gr.Textbox(value=passage, label="Passage to read aloud", lines=5, interactive=False)
-                recording = gr.Audio(
-                    sources=["microphone", "upload"], type="filepath", label="Recording or upload"
-                )
                 with gr.Row():
-                    voice_name = gr.Textbox(value="me", label="Voice name", scale=1)
-                    overwrite = gr.Checkbox(value=False, label="Overwrite if the name exists", scale=1)
-                transcript = gr.Textbox(
-                    value=passage, label="Transcript (the exact words spoken)", lines=5,
-                    info="Edit it if you changed or skipped words. Needed for the closest-match mode.",
-                )
-                save_btn = gr.Button("Save voice", variant="primary")
-                save_status = gr.Textbox(label="Status", interactive=False, lines=2)
-                with gr.Row():
-                    saved_audio = gr.Audio(label="Saved voice", interactive=False)
-                    saved_duration = gr.Textbox(label="Duration", interactive=False)
+                    with gr.Column(scale=3):
+                        # The script stays in view while recording; the reading directions are in italics.
+                        gr.Markdown(script_md, max_height="80vh")
+                    with gr.Column(scale=2):
+                        gr.Markdown(
+                            "Read all ten sections in one take (about 3 minutes, quiet room). "
+                            "Pause briefly between sections. Stop recording about one second after the last word. "
+                            "Or upload a file. Silence at the start and end is cut when you save."
+                        )
+                        # gr.Audio has no maximum recording length in Gradio 6.30.0.
+                        recording = gr.Audio(
+                            sources=["microphone", "upload"], type="filepath", label="Recording or upload"
+                        )
+                        with gr.Row():
+                            voice_name = gr.Textbox(value="me", label="Voice name", scale=1)
+                            overwrite = gr.Checkbox(value=False, label="Overwrite if the name exists", scale=1)
+                        transcript = gr.Textbox(
+                            value=spoken_text, label="Transcript (the exact words spoken)", lines=8, max_lines=14,
+                            info="The spoken text of the script, without headings and directions. "
+                                 "Edit it if you changed, skipped or added words. Needed for the closest-match mode.",
+                        )
+                        save_btn = gr.Button("Save voice", variant="primary")
+                        save_status = gr.Textbox(label="Status", interactive=False, lines=2)
+                        with gr.Row():
+                            saved_audio = gr.Audio(label="Saved voice", interactive=False)
+                            saved_duration = gr.Textbox(label="Duration", interactive=False)
 
             with gr.Tab("Speak"):
                 gr.Markdown(

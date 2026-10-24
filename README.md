@@ -17,11 +17,25 @@ uv pip install --python .venv/bin/python -r requirements.txt
 
 Double-click `start.command` in Finder, or run `.venv/bin/python app.py`. The browser opens at http://127.0.0.1:7860. The server listens on this machine only.
 
-- **Record voice**: record or upload a voice sample, give it a name, check the transcript, save it to `voices/<name>.wav` and `voices/<name>.txt`.
+- **Record voice**: shows `voice-script.md`. Read it in one take (see below) or upload a recording, give the voice a name, check the transcript, save it to `voices/<name>.wav` and `voices/<name>.txt`.
 - **Speak**: pick a saved voice and a mode, type text, choose the output folder with the native folder picker, generate, play the result.
 - **Files**: list, play and reveal in Finder the audio files of the output folder.
 
 The model loads on the first generation and stays loaded until the app stops.
+
+## Recording the voice
+
+`voice-script.md` is the text to read. It has ten sections, one speaking style each, about 3 minutes in total (474 spoken words). The italic line under each heading is a reading direction. It is not read aloud.
+
+- Record in a quiet room, in one take, all ten sections.
+- Pause briefly between sections.
+- Stop recording about one second after the last word.
+
+The transcript box is filled with the spoken text only. The title, the intro, the headings and the reading directions are left out. The transcript must match the words you say. Edit it if you changed, skipped or added words.
+
+On save, the recording becomes a mono 48 kHz 16-bit WAV. Silence at the start and the end is cut to at most about 0.5 s (threshold -50 dB). Pauses inside the speech are not touched. If the room noise is louder than -50 dB, the ends are not cut. The saved duration is shown.
+
+A long reference makes every generation slower, because the model processes the reference again on each call.
 
 ## Modes
 
@@ -31,13 +45,17 @@ The model loads on the first generation and stays loaded until the app stops.
 ## Command line
 
 ```
-bash record.sh voices/me.wav 25
+bash record.sh                                           # reads voice-script.md: 200 s, writes voices/me.wav, cuts silence at both ends
+bash record.sh voices/other.wav 150                      # another file name and length in seconds
+.venv/bin/python -c "from app import script_transcript as s; print(s('voice-script.md'))" > voices/me.txt
 .venv/bin/python clone.py --ref voices/me.wav --ref-text-file voices/me.txt --text "Hello." --out outputs/hello.wav
 .venv/bin/python clone.py --ref voices/me.wav            # type one line per clip; an empty line ends
 .venv/bin/python demo.py mps                             # speech without cloning, as an install check
 ```
 
-`voices/me.txt` is an English passage to read aloud for the sample.
+`record.sh` records the microphone for the given number of seconds, or until Ctrl-C, and keeps what was recorded. It writes only the WAV.
+
+`voices/me.txt` is the transcript file the app writes next to `voices/me.wav` when you save the voice `me`. After `record.sh`, the `python -c` line writes it from `voice-script.md`. Without a transcript file, use `clone.py --ref` alone (reference only).
 
 ## What stays out of git
 

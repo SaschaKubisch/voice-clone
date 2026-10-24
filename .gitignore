@@ -6,7 +6,6 @@ __pycache__/
 # A recording of a voice is enough to clone it.
 *.wav
 voices/*
-!voices/me.txt
 outputs/
 
 *.log
