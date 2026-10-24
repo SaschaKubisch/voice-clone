@@ -379,7 +379,7 @@ def build_ui():
                         gr.Markdown(script_md, max_height="80vh")
                     with gr.Column(scale=2):
                         gr.Markdown(
-                            "Read all ten sections in one take (about 3 minutes, quiet room). "
+                            "Read all ten sections in one take (about 1.5 minutes, quiet room). "
                             "Pause briefly between sections. Stop recording about one second after the last word. "
                             "Or upload a file. Silence at the start and end is cut when you save."
                         )

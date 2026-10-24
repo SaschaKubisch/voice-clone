@@ -3,7 +3,7 @@
 # the end to about 0.5 s. Pauses inside the speech stay. Output: mono 48 kHz 16-bit WAV.
 # Usage: bash record.sh [OUTPUT_PATH] [SECONDS]
 #   OUTPUT_PATH  default: voices/me.wav (relative to this script's folder)
-#   SECONDS      default: 200 (voice-script.md takes about 3 minutes to read)
+#   SECONDS      default: 100 (voice-script.md takes about 1.5 minutes to read)
 # Ctrl-C ends the recording early; what was recorded so far is kept.
 set -euo pipefail
 
@@ -14,7 +14,7 @@ DEVICE="MacBook Air Microphone"
 cd "$(dirname "$0")"
 
 OUT="${1:-voices/me.wav}"
-SECONDS_TO_RECORD="${2:-200}"
+SECONDS_TO_RECORD="${2:-100}"
 
 case "$SECONDS_TO_RECORD" in
   ''|*[!0-9]*) echo "error: seconds must be a positive integer, got '$SECONDS_TO_RECORD'" >&2; exit 2 ;;

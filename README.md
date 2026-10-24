@@ -25,7 +25,7 @@ The model loads on the first generation and stays loaded until the app stops. Ch
 
 ## Recording the voice
 
-`voice-script.md` is the text to read. It has ten sections, one speaking style each, about 3 minutes in total (474 spoken words). The italic line under each heading is a reading direction. It is not read aloud.
+`voice-script.md` is the text to read. It has ten sections, one mood each, in easy words, about 1.5 minutes in total (234 spoken words). The italic line under each heading is a reading direction. It is not read aloud.
 
 - Record in a quiet room, in one take, all ten sections.
 - Pause briefly between sections.
@@ -45,7 +45,7 @@ A long reference makes every generation slower, because the model processes the 
 ## Command line
 
 ```
-bash record.sh                                           # reads voice-script.md: 200 s, writes voices/me.wav, cuts silence at both ends
+bash record.sh                                           # reads voice-script.md: 100 s, writes voices/me.wav, cuts silence at both ends
 bash record.sh voices/other.wav 150                      # another file name and length in seconds
 .venv/bin/python -c "from app import script_transcript as s; print(s('voice-script.md'))" > voices/me.txt
 .venv/bin/python clone.py --ref voices/me.wav --ref-text-file voices/me.txt --text "Hello." --out outputs/hello.wav
@@ -71,4 +71,4 @@ Precision. The model runs in float16 by default (`--dtype` in `clone.py`, Precis
 
 An ASR model (SenseVoiceSmall) transcribed both outputs as "the quick brown fox jumps over the lazy dog near the riverbank". Loading float16 still peaks at about 10 GiB (process footprint), because voxcpm builds the model in float32 on the CPU first and then casts it (read from its source; the peak itself was measured). `tests/test_fp16_audio.py` checks that the float16 output is speech. The precision setting only applies on MPS. Close other applications before generating. Use `--device cpu` (command line) if MPS reports an error.
 
-A long reference, such as the 3-minute take, is encoded in 20-second pieces to fit in memory, and once per app run instead of on every generation (`voxcpm_patch.py`, applied by `app.py` and `clone.py`). `tests/test_chunked_encode.py` checks that the pieces give the same result as encoding the whole recording.
+A reference longer than 20 seconds, such as the full script, is encoded in 20-second pieces to fit in memory, and once per app run instead of on every generation (`voxcpm_patch.py`, applied by `app.py` and `clone.py`). `tests/test_chunked_encode.py` checks that the pieces give the same result as encoding the whole recording.
