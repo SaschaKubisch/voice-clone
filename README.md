@@ -64,3 +64,5 @@ Voice recordings, generated audio and the Python environment are ignored (`.giti
 ## Memory
 
 The model needs about 9 GB of memory at the float32 precision it uses on Apple Silicon. On a 16 GB Mac with other applications open, macOS moves memory to swap and model load plus one short sentence can take several minutes. Close other applications before generating. Use `--device cpu` (command line) if MPS reports an error.
+
+A long reference, such as the 3-minute take, is encoded in 20-second pieces to fit in memory, and once per app run instead of on every generation (`voxcpm_patch.py`, applied by `app.py` and `clone.py`). `tests/test_chunked_encode.py` checks that the pieces give the same result as encoding the whole recording.

@@ -92,6 +92,7 @@ def main():
     # Heavy imports after argument validation so --help and errors are fast.
     import soundfile as sf
     from voxcpm import VoxCPM
+    from voxcpm_patch import apply as patch_reference_encoding
 
     t0 = time.time()
     model = VoxCPM.from_pretrained(
@@ -100,6 +101,7 @@ def main():
         optimize=False,
         device=args.device,
     )
+    patch_reference_encoding(model)  # long references encoded in pieces, once per run
     sr = model.tts_model.sample_rate
     print(f"model loaded on {model.tts_model.device} in {time.time() - t0:.1f} s", flush=True)
 

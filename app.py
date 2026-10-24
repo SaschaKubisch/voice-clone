@@ -134,11 +134,13 @@ def get_model():
     with MODEL_LOCK:
         if MODEL is None:
             from voxcpm import VoxCPM
+            from voxcpm_patch import apply as patch_reference_encoding
 
             start = time.time()
             MODEL = VoxCPM.from_pretrained(
                 "openbmb/VoxCPM2", load_denoiser=False, optimize=False, device="mps"
             )
+            patch_reference_encoding(MODEL)  # long references encoded in pieces, once per run
             LOAD_SECONDS = time.time() - start
         return MODEL
 
