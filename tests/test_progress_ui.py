@@ -115,7 +115,7 @@ def make_workdir():
     outputs.mkdir()
     t = np.arange(VOICE_SECONDS * SAMPLE_RATE) / SAMPLE_RATE
     sf.write(voices / "stub.wav", (0.2 * np.sin(2 * np.pi * 180 * t)).astype(np.float32), SAMPLE_RATE)
-    words = ("calm morning light over the quiet farm and the river ").split()
+    words = ("calm morning light over the quiet hills and the lake ").split()
     transcript = ""
     while len(transcript) < VOICE_SECONDS * CHARS_PER_SECOND:
         transcript += words[len(transcript.split()) % len(words)] + " "

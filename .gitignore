@@ -5,8 +5,19 @@ __pycache__/
 # Voice recordings and generated audio stay on this machine.
 # A recording of a voice is enough to clone it.
 *.wav
+*.m4a
+*.mp3
+*.flac
+*.aiff
+*.aif
+*.ogg
+*.opus
+*.webm
 voices/*
 outputs/
+
+# Local settings and secrets
+.env
 
 *.log
 .DS_Store

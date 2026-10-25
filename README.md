@@ -457,7 +457,7 @@ What is kept besides the files you save:
 
 - Temporary copies of your recordings and clips. The audio players use copies in a folder named `voice-ui-...` in the temporary folder of macOS. Gradio keeps copies of uploaded and generated audio in `gradio` in the same place. The app does not delete them when it stops. To find the folder, run `echo $TMPDIR`. To remove the copies, quit the app and delete `gradio` and the `voice-ui-...` folders there.
 
-What is kept out of git (`.gitignore`): `voices/*`, `outputs/`, every `*.wav`, `.venv/`, `__pycache__/`, `*.log`, `.DS_Store` and `macapp/build/`. Voice recordings, generated audio and the Python environment never go into the repository. This does not cover an output folder you pick inside another repository, and it does not stop `git add -f`.
+What is kept out of git (`.gitignore`): `voices/*`, `outputs/`, every `*.wav` and other audio file (`.m4a`, `.mp3`, `.flac`, `.aiff`, `.aif`, `.ogg`, `.opus`, `.webm`), `.env`, `.venv/`, `__pycache__/`, `*.log`, `.DS_Store` and `macapp/build/`. Voice recordings, generated audio and the Python environment never go into the repository. This does not cover an output folder you pick inside another repository, and it does not stop `git add -f`.
 
 ## Troubleshooting
 
