@@ -10,3 +10,6 @@ outputs/
 
 *.log
 .DS_Store
+
+# Built Mac app (make-app.sh)
+macapp/build/

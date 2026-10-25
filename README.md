@@ -23,6 +23,33 @@ Double-click `start.command` in Finder, or run `.venv/bin/python app.py`. The br
 
 The model loads on the first generation and stays loaded until the app stops. Changing Precision frees the loaded model and loads it again in the new precision on the next Generate.
 
+### Progress bar of the Speak tab
+
+One bar under the Generate button (Gradio's own progress overlay is off for this event). It shows the percentage of the whole run, the elapsed time, what is happening now in plain words, and a second line with details. The page changes at most twice a second, and only when something changed.
+
+- The model makes speech in steps. One step makes 0.16 s of audio (6.25 steps per second). `voxcpm_patch.py` counts the steps of the generation loop of voxcpm without changing it, so the audio is the same. The bar of a clip moves with the steps.
+- Reading the voice, preparing the text, turning the speech into sound, saving and loading the model have no step count. The bar stands still or shows a striped bar there, and the second line says so.
+- The number of steps of a clip is estimated from the text before it starts: characters times 6.25 divided by the characters per second of the chosen voice (its transcript length over its recording length, limited to 8-20; 15 without a transcript). After each clip the measured steps per character replace the estimate for that voice. When a clip runs past its estimate, the estimate grows and the bar keeps rising, but it shows 100% only after the last clip is saved.
+- Several clips ("one file per line"): the bar is (finished clips + part of the current clip) divided by the number of clips.
+
+`tests/test_progress_ui.py` checks the bar with a stand-in model on port 7861 and never loads the real model. `tests/test_progress_hook.py` checks the step counting without loading the model.
+
+## Mac app
+
+`make-app.sh` builds "Voice Clone.app", a launcher for the web interface: an AppleScript applet built with `osacompile`, so it needs no new dependency.
+
+```
+bash make-app.sh --install   # builds macapp/build/Voice Clone.app, copies it to /Applications, registers it with Launch Services
+bash make-app.sh             # builds only
+```
+
+- **Open** it from Launchpad. If http://127.0.0.1:7860 already answers, the app only opens it in the browser. Otherwise it starts `.venv/bin/python app.py` in the background, waits up to 90 s, then opens the browser once. Clicking the app again in the Dock or Launchpad opens the page again.
+- **Quit** (Cmd-Q or Dock, Quit) stops the server this app started: SIGTERM, then SIGKILL after 10 s. A server the app did not start, such as one from `start.command`, keeps running.
+- **Log**: `~/Library/Logs/VoiceClone/app.log`. The app names this file when the server does not start.
+- **Folder**: the app points to this repo folder, fixed when `make-app.sh` runs. If the folder moves, run `bash make-app.sh --install` again there. If `.venv` is missing, the app shows the commands from Setup.
+- `--install` refuses while the app is running. The app is signed ad hoc (not notarized), which is enough to run on the Mac that built it.
+- `VOICECLONE_PORT=7862 bash macapp/test-launcher.sh` tests the launcher logic against a stand-in server and never uses port 7860.
+
 ## Recording the voice
 
 `voice-script.md` is the text to read. It has ten sections, one mood each, in easy words, about 1.5 minutes in total (234 spoken words). The italic line under each heading is a reading direction. It is not read aloud.
