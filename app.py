@@ -23,6 +23,11 @@ from pathlib import Path
 
 import gradio as gr
 
+import voxcpm_patch
+from progress_ui import (
+    CSS as PROGRESS_CSS, RunProgress, calibrate, estimate_steps, idle_html, mmss, prior_steps_per_character,
+    spoken_characters, steps_per_character,
+)
 from voxcpm_patch import DEFAULT_DTYPE, DTYPES  # imports torch only, not the model
 
 APP_DIR = Path(__file__).resolve().parent
@@ -56,6 +61,7 @@ LOAD_SECONDS = None
 MODEL_LOCK = threading.Lock()
 # One worker: the model never runs two jobs at once.
 WORKER = ThreadPoolExecutor(max_workers=1)
+POLL_SECONDS = 0.2  # how often the event handler looks at the worker; the page changes at most twice a second
 
 
 # ---------------------------------------------------------------- helpers
@@ -127,11 +133,6 @@ def script_transcript(path):
     return " ".join(" ".join(spoken).split())
 
 
-def mmss(seconds):
-    seconds = int(seconds)
-    return f"{seconds // 60}:{seconds % 60:02d}"
-
-
 # ---------------------------------------------------------------- model
 
 def unload_model():
@@ -173,10 +174,22 @@ def attach_denoiser():
             MODEL.denoiser = ZipEnhancer(DENOISER_ID)
 
 
-def synthesize(text, voice_kwargs, cfg, steps, denoise, folder, base):
-    """Generate one clip and write it to a new file. Runs in the worker thread."""
+def write_clip(wav, sample_rate, folder, base):
+    """Write the samples to a new WAV file and return its path."""
     import soundfile as sf
 
+    path = unique_path(folder, base)
+    with open(path, "xb") as f:  # "x": fail instead of overwriting
+        sf.write(f, wav, sample_rate, format="WAV")
+    return path
+
+
+def synthesize(text, voice_kwargs, cfg, steps, denoise, folder, base):
+    """Generate one clip and write it to a new file. Runs in the worker thread.
+
+    While it runs, voxcpm_patch.PROGRESS tells which phase it is in and how many steps are done.
+    Returns (path, seconds of audio, seconds the generation took).
+    """
     start = time.time()
     with MODEL_LOCK:
         wav = MODEL.generate(
@@ -186,12 +199,22 @@ def synthesize(text, voice_kwargs, cfg, steps, denoise, folder, base):
             denoise=denoise,
             **voice_kwargs,
         )
-    elapsed = time.time() - start
-    sr = MODEL.tts_model.sample_rate
-    path = unique_path(folder, base)
-    with open(path, "xb") as f:  # "x": fail instead of overwriting
-        sf.write(f, wav, sr, format="WAV")
-    return path, len(wav) / sr, elapsed
+        sample_rate = MODEL.tts_model.sample_rate
+    taken = time.time() - start
+    voxcpm_patch.PROGRESS.set_phase("saving")
+    path = write_clip(wav, sample_rate, folder, base)
+    return path, len(wav) / sample_rate, taken
+
+
+def voice_chars_per_second(voice):
+    """Characters per second of a saved voice (transcript length over recording length), or None."""
+    try:
+        txt = VOICES_DIR / f"{voice}.txt"
+        characters = spoken_characters(txt.read_text(encoding="utf-8")) if txt.is_file() else 0
+        seconds = audio_seconds(VOICES_DIR / f"{voice}.wav")
+    except Exception:
+        return None
+    return characters / seconds if characters and seconds > 0 else None
 
 
 # ---------------------------------------------------------------- tab 1: record voice
@@ -261,7 +284,7 @@ def choose_folder(current):
     return result.stdout.strip().rstrip("/") or "/"
 
 
-def speak(voice, mode, precision, text, cfg, steps, denoise, out_dir, file_name, per_line, progress=gr.Progress()):
+def speak(voice, mode, precision, text, cfg, steps, denoise, out_dir, file_name, per_line):
     # Check everything cheap first, so a mistake does not cost a 4 minute model load.
     if per_line:
         texts = [ln.strip() for ln in (text or "").splitlines() if ln.strip()]
@@ -290,31 +313,46 @@ def speak(voice, mode, precision, text, cfg, steps, denoise, out_dir, file_name,
         raise gr.Error(f"Cannot use output folder {folder}: {exc}")
     custom = safe_name(re.sub(r"\.wav$", "", (file_name or "").strip(), flags=re.I))
 
-    log = []  # finished lines stay visible; the last line shows the current wait
+    # Progress. The bar is one gr.HTML that this function rewrites; Gradio's own overlay is off for this
+    # event (show_progress="hidden" in build_ui). RunProgress decides what the bar shows and when it
+    # changes; a new page goes out only when it differs from the last one and 0.5 s have passed.
     total = len(texts)
+    run = RunProgress(total, voxcpm_patch.PROGRESS.snapshot)
+    rate_key = (voice, mode)
+    prior = prior_steps_per_character(voice_chars_per_second(voice))
+    log = []  # one line per finished clip, in the "Saved files" box
+    nothing = gr.update()
 
-    def wait(future, label, done_fraction):
-        """Yield a status tick every second while the worker thread runs."""
-        started = time.time()
+    def wait(future):
+        """Yield a new bar when it changed, at most twice a second, until the worker thread is done."""
         while not future.done():
-            message = f"{label} ... {mmss(time.time() - started)} elapsed. Please wait."
-            progress(done_fraction, desc=message)
-            yield gr.update(), "\n".join(log + [message])
-            wait_for_futures([future], timeout=1)
+            page = run.poll()
+            if page is not None:
+                yield nothing, page, nothing
+            wait_for_futures([future], timeout=POLL_SECONDS)
         try:
             return future.result()
         except Exception as exc:
-            raise gr.Error(f"{type(exc).__name__}: {exc}")
+            message = f"{type(exc).__name__}: {exc}"
+            yield nothing, run.fail(message), nothing
+            raise gr.Error(message)
 
+    announced = False  # the first page goes out at once, so a click is answered immediately
     if MODEL is None or MODEL_DTYPE != precision:
-        if MODEL is not None:
+        replacing = MODEL is not None
+        if replacing:
             log.append(f"Precision changed from {MODEL_DTYPE} to {precision}: the old model is freed first.")
-        hint = LOAD_HINT[precision]
-        yield gr.update(), "\n".join(log + [f"Loading the model in {precision}. This takes {hint}."])
-        yield from wait(WORKER.submit(get_model, precision), f"Loading the model in {precision} ({hint})", 0)
+        run.loading_model(precision, LOAD_HINT[precision], replacing)
+        yield nothing, run.force(), "\n".join(log)
+        announced = True
+        yield from wait(WORKER.submit(get_model, precision))
         log.append(f"Model loaded in {precision} in {mmss(LOAD_SECONDS)}.")
     if denoise and MODEL.denoiser is None:
-        yield from wait(WORKER.submit(attach_denoiser), "Loading the denoiser", 0)
+        run.loading_denoiser()
+        if not announced:
+            yield nothing, run.force(), nothing
+            announced = True
+        yield from wait(WORKER.submit(attach_denoiser))
         log.append("Denoiser loaded.")
 
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
@@ -323,14 +361,23 @@ def speak(voice, mode, precision, text, cfg, steps, denoise, out_dir, file_name,
             base = f"{custom}_{i:02d}" if total > 1 else custom
         else:
             base = auto_base(line, stamp, i if total > 1 else None)
-        label = f"Generating {i}/{total}"
+        estimate = estimate_steps(line, steps_per_character(rate_key, prior))
+        run.start_clip(i, estimate)
+        voxcpm_patch.PROGRESS.begin("denoise" if denoise else "voice")
         future = WORKER.submit(synthesize, line, voice_kwargs, cfg, steps, denoise, folder, base)
-        path, seconds, elapsed = yield from wait(future, label, (i - 1) / total)
-        log.append(f"Saved {path}  ({seconds:.1f} s of audio, generated in {elapsed:.1f} s)")
-        yield playable(path), "\n".join(log)
-    progress(1, desc="Done")
-    log.append(f"Done. {total} file(s) in {folder}")
-    yield gr.update(), "\n".join(log)
+        if not announced:
+            yield nothing, run.force(), nothing
+            announced = True
+        path, seconds, taken = yield from wait(future)
+
+        made = round(seconds / voxcpm_patch.PROGRESS.patch_seconds)
+        calibrate(rate_key, spoken_characters(line), made)
+        log.append(f"Saved {path}  ({seconds:.1f} s of audio, {made} steps, estimated {estimate}, generated in {taken:.1f} s)")
+        run.clip_saved(path.name, seconds)
+        if i == total:
+            run.done(f"saved {path}" if total == 1 else f"saved {total} files in {folder}")
+            log.append(f"Done. {total} file(s) in {folder}")
+        yield playable(path), run.force(), "\n".join(log)
 
 
 # ---------------------------------------------------------------- tab 3: files
@@ -405,8 +452,8 @@ def build_ui():
                 gr.Markdown(
                     "The first Generate loads the model. A clip of a few seconds then takes about 10-15 s in "
                     "float16 and several minutes in float32 on a 16 GB Mac (measured with a 20 s voice; "
-                    "longer texts take longer). The status line below shows the elapsed time. "
-                    "Keep this page open."
+                    "longer texts take longer). The bar below shows what is happening, the elapsed time and, "
+                    "while the speech is made, how many of the expected steps are done. Keep this page open."
                 )
                 with gr.Row():
                     voice = gr.Dropdown(
@@ -440,8 +487,11 @@ def build_ui():
                     info="Blank: timestamp plus the first words. Existing files are never overwritten.",
                 )
                 generate_btn = gr.Button("Generate", variant="primary", size="lg")
+                # The one progress bar, above the player so that it does not move when the player gets audio.
+                # Gradio's own overlay is off for the event (show_progress="hidden").
+                speak_bar = gr.HTML(idle_html(), css_template=PROGRESS_CSS, js_on_load=None, elem_id="speak-progress")
                 result_audio = gr.Audio(label="Result", interactive=False)
-                speak_status = gr.Textbox(label="Status", interactive=False, lines=4)
+                speak_log = gr.Textbox(label="Saved files", interactive=False, lines=3, autoscroll=True)
 
             with gr.Tab("Files") as files_tab:
                 gr.Markdown("The .wav files in the output folder of the Speak tab.")
@@ -460,7 +510,7 @@ def build_ui():
         choose_btn.click(choose_folder, [out_dir], [out_dir], api_name="choose_folder")
         generate_btn.click(
             speak, [voice, mode, precision, text, cfg, steps, denoise, out_dir, file_name, per_line],
-            [result_audio, speak_status], api_name="speak",
+            [result_audio, speak_bar, speak_log], api_name="speak", show_progress="hidden",
         )
         files_refresh_btn.click(list_files, [out_dir], [files_dd, files_status], api_name="list_files")
         files_tab.select(list_files, [out_dir], [files_dd, files_status], api_visibility="private")

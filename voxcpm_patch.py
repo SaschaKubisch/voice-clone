@@ -29,13 +29,20 @@ caches are float16. The audio VAE stays float32: voxcpm casts it back after the 
 converts the latents to float32 before decoding. tests/test_fp16_audio.py checks that this mix
 makes speech.
 
+Progress. The generation loop of voxcpm 2.0.3 is `for i in tqdm(range(max_len))`, one pass per model step,
+and each step makes one patch of 0.16 s of audio (4 latent frames x 1920 samples / 48000 Hz). patch_progress
+counts the passes through a wrapper around the loop's iterator and marks the phases before and after the
+loop. Nothing in the loop changes, so the audio is the same. The UI reads PROGRESS.snapshot().
+
 Use:  model = voxcpm_patch.load_model("float16")     # loads, patches the reference encoding
       del model; voxcpm_patch.release()               # frees the memory before loading another
 """
 import contextlib
 import gc
 import os
+import sys
 import threading
+import time
 from collections import OrderedDict
 
 import torch
@@ -166,11 +173,149 @@ def patch_encode_cache(tts, max_entries=CACHE_ENTRIES):
     return tts
 
 
+# ---------------------------------------------------------------- progress
+
+PATCH_SECONDS = 0.16  # audio per model step: 4 latent frames x 1920 output samples / 48000 Hz (voxcpm 2.0.3 config)
+
+
+class GenerationProgress:
+    """What model.generate is doing now. The hooks below write it; another thread reads it.
+
+    One generate call goes through these phases:
+      denoise   the denoiser cleans the reference recording (only with the denoise option)
+      voice     build_prompt_cache encodes the reference and prompt recordings
+      prepare   text tokens and the first pass over reference, prompt and text, before the first step
+      speech    the generation loop: one step makes one patch of PATCH_SECONDS of audio
+      wrapup    the loop is over; voxcpm checks the take and either decodes it or starts a retry
+      decode    the audio VAE turns the latent frames into samples
+      saving    set by the caller after generate returns
+    A step is one pass of the loop `for i in tqdm(range(max_len))` in VoxCPM2Model._inference.
+    `attempt` counts the passes of that loop: voxcpm repeats it up to three times when a take is
+    far too long for the text (retry_badcase).
+    """
+
+    def __init__(self):
+        self._lock = threading.Lock()
+        self.patch_seconds = PATCH_SECONDS
+        self._reset("idle")
+
+    def _reset(self, phase):
+        self._phase = phase
+        self._phase_since = time.time()
+        self._attempt = 0
+        self._steps = 0
+        self._max_steps = None
+
+    def begin(self, phase="voice"):
+        """Start a new clip."""
+        with self._lock:
+            self._reset(phase)
+
+    def set_phase(self, phase):
+        with self._lock:
+            if phase != self._phase:
+                self._phase = phase
+                self._phase_since = time.time()
+
+    def snapshot(self):
+        with self._lock:
+            return {
+                "phase": self._phase,
+                "phase_seconds": time.time() - self._phase_since,
+                "attempt": self._attempt,
+                "steps": self._steps,
+                "max_steps": self._max_steps,
+                "patch_seconds": self.patch_seconds,
+            }
+
+    def iterate(self, iterable):
+        """Yield the items of iterable and count a step each time the loop body is done with one.
+
+        The items and their order are those of iterable. Used in place of tqdm(...) by the loop.
+        A `break` closes this generator, which counts the step the loop stopped on.
+        """
+        try:
+            max_steps = len(iterable)
+        except TypeError:
+            max_steps = None
+        with self._lock:
+            self._phase = "speech"
+            self._phase_since = time.time()
+            self._attempt += 1
+            self._steps = 0
+            self._max_steps = max_steps
+        try:
+            for item in iterable:
+                try:
+                    yield item
+                finally:
+                    with self._lock:
+                        self._steps += 1
+        finally:
+            self.set_phase("wrapup")
+
+
+PROGRESS = GenerationProgress()
+
+
+def patch_progress(model, tracker=None):
+    """Report what model.generate does to tracker (default PROGRESS), without changing what it computes.
+
+    voxcpm 2.0.3 runs its generation loop as `for i in tqdm(range(max_len))`, with tqdm imported into
+    the module of the model class. That name is replaced by a function that still builds the real tqdm
+    bar (stderr output as before) and iterates it through tracker.iterate, which counts the passes.
+    The iterated values are the same, so the loop, the sampling and the audio are unchanged.
+    build_prompt_cache and audio_vae.decode are wrapped to mark the phases around the loop.
+    """
+    tracker = PROGRESS if tracker is None else tracker
+    tts = getattr(model, "tts_model", model)
+    if getattr(tts, "progress_tracker", None) is not None:
+        return model
+    inference = getattr(type(tts), "_inference", None)
+    module = sys.modules[getattr(inference, "__module__", None) or type(tts).__module__]
+    original_tqdm = getattr(module, "tqdm", None)
+    if original_tqdm is not None and not getattr(original_tqdm, "wraps_tqdm", False):
+
+        def tqdm_with_progress(iterable=None, *args, **kwargs):
+            return tracker.iterate(original_tqdm(iterable, *args, **kwargs))
+
+        tqdm_with_progress.wraps_tqdm = original_tqdm
+        module.tqdm = tqdm_with_progress
+
+    original_build = tts.build_prompt_cache
+
+    def build_prompt_cache(*args, **kwargs):
+        tracker.set_phase("voice")
+        try:
+            return original_build(*args, **kwargs)
+        finally:
+            tracker.set_phase("prepare")
+
+    tts.build_prompt_cache = build_prompt_cache
+
+    vae = tts.audio_vae
+    original_decode = vae.decode
+
+    def decode(*args, **kwargs):
+        tracker.set_phase("decode")
+        return original_decode(*args, **kwargs)
+
+    vae.decode = decode
+
+    try:
+        tracker.patch_seconds = tts.patch_size * tts._decode_chunk_size / tts.sample_rate
+    except (AttributeError, TypeError, ZeroDivisionError):
+        pass
+    tts.progress_tracker = tracker
+    return model
+
+
 def apply(model):
     """Patch a loaded voxcpm.VoxCPM (or its tts_model) in place and return it."""
     tts = getattr(model, "tts_model", model)
     patch_vae(tts.audio_vae, tts.patch_size)
     patch_encode_cache(tts)
+    patch_progress(model)
     return model
 
 
