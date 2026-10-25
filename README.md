@@ -36,19 +36,48 @@ One bar under the Generate button (Gradio's own progress overlay is off for this
 
 ## Mac app
 
-`make-app.sh` builds "Voice Clone.app", a launcher for the web interface: an AppleScript applet built with `osacompile`, so it needs no new dependency.
+`make-app.sh` builds "Voice Clone.app" in two modes. Both install as `/Applications/Voice Clone.app` (bundle id `local.voiceclone`), so installing one replaces the other.
+
+- **Desktop app** (the default): a window of its own, with its own Dock icon and menu. It is a small Swift app (`macapp/desktop/`) that shows the web interface in a WebKit view. It needs the Command Line Tools for `swiftc` (`xcode-select --install`) and macOS 12 or newer. There is no Xcode project and no new dependency.
+- **Browser app**: a launcher that opens the web interface in the default browser. It is an AppleScript applet built with `osacompile`.
 
 ```
-bash make-app.sh --install   # builds macapp/build/Voice Clone.app, copies it to /Applications, registers it with Launch Services
-bash make-app.sh             # builds only
+bash make-app.sh --install             # desktop app: builds macapp/build/Voice Clone.app, copies it to /Applications, registers it with Launch Services
+bash make-app.sh --install --browser   # browser app, the same steps
+bash make-app.sh                       # builds the desktop app only (add --browser for the browser app)
 ```
 
-- **Open** it from Launchpad. If http://127.0.0.1:7860 already answers, the app only opens it in the browser. Otherwise it starts `.venv/bin/python app.py` in the background, waits up to 90 s, then opens the browser once. Clicking the app again in the Dock or Launchpad opens the page again.
-- **Quit** (Cmd-Q or Dock, Quit) stops the server this app started: SIGTERM, then SIGKILL after 10 s. A server the app did not start, such as one from `start.command`, keeps running.
+`--install` refuses while either variant is running. Every run of `make-app.sh` unregisters the build in `macapp/build` from Launch Services (`lsregister -u`), so Launchpad and Spotlight list one Voice Clone, the installed one. If something opens the build copy later, Launch Services can register it again; the next `make-app.sh` run removes it. Both variants are signed ad hoc (not notarized), which is enough to run on the Mac that built them, with no hardened runtime and no sandbox.
+
+Both modes work the same way underneath (`macapp/voiceclone.sh`):
+
+- **Start**: if http://127.0.0.1:7860 already answers, the app uses that server. Otherwise it starts `.venv/bin/python app.py` in the background and waits up to 90 s.
+- **Quit** stops the server this app started: SIGTERM, then SIGKILL after 10 s. A server the app did not start, such as one from `start.command`, keeps running.
+- **Force quit or crash**: the server keeps running. The next start finds the running server and uses it, but the app does not own it, so Quit does not stop it. Stop it with `pkill -f '.venv/bin/python app.py'`.
 - **Log**: `~/Library/Logs/VoiceClone/app.log`. The app names this file when the server does not start.
 - **Folder**: the app points to this repo folder, fixed when `make-app.sh` runs. If the folder moves, run `bash make-app.sh --install` again there. If `.venv` is missing, the app shows the commands from Setup.
-- `--install` refuses while the app is running. The app is signed ad hoc (not notarized), which is enough to run on the Mac that built it.
-- `VOICECLONE_PORT=7862 bash macapp/test-launcher.sh` tests the launcher logic against a stand-in server and never uses port 7860.
+
+### Desktop app
+
+- **Window**: one window titled "Voice Clone", 1200 x 900 or smaller to fit the screen. It shows "Starting Voice Clone..." until the server answers, then the web interface. If the server does not answer within 90 s, an alert names the log file and the app stops the server it started. Cmd-R then tries again. The app keeps no state between runs: no window position, no cookies.
+- **Quit**: Cmd-Q, or closing the window (Cmd-W), quits the app and stops the server it started.
+- **Menu**: Voice Clone (About, Hide, Quit), File (Close), Edit (Undo, Redo, Cut, Copy, Paste, Select All), View (Reload with Cmd-R, Full Screen), Window.
+- **Microphone**: the first time you record in the Record voice tab, macOS asks to allow the microphone for Voice Clone. Allow it. The window grants the microphone only to the page of this server. If you chose Don't Allow, switch it on in System Settings, Privacy & Security, Microphone. macOS may ask again after you install a new build, because every build has a new ad hoc signature.
+- **Downloads**: the download button of the audio player saves the file into `~/Downloads` (a name that exists gets " 2", " 3") and shows it in Finder. macOS can ask to allow access to the Downloads folder.
+- **Uploads**: the upload buttons open the standard file dialog.
+- **Links**: a link that wants a new window, or points outside 127.0.0.1, opens in the default browser.
+
+### Browser app
+
+- **Open** it from Launchpad. If the server already answers, the app only opens the page in the browser. Otherwise it starts the server, waits, then opens the browser once. Clicking the app again in the Dock or Launchpad opens the page again.
+- **Quit** (Cmd-Q or Dock, Quit) stops the server this app started.
+
+### Tests
+
+Both tests use a stand-in server and never use port 7860.
+
+- `VOICECLONE_PORT=7862 bash macapp/test-launcher.sh` tests `macapp/voiceclone.sh`.
+- `VOICECLONE_PORT=7862 bash macapp/test-desktop.sh` runs `VoiceClone --self-test` from the desktop build in `macapp/build` (build it first). It tests the server rules of the desktop app with no window: reuse of a running server, start of its own, stop of only its own, timeout, a server that exits, a missing folder or `.venv`, and that WebKit treats http://127.0.0.1 as a secure context, which the microphone needs. The window itself (menu, microphone prompt, downloads, uploads) is not covered by a test.
 
 ## Recording the voice
 
