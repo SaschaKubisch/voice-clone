@@ -1,46 +1,50 @@
-# voice-clone
+<p align="center">
+  <img src="docs/icon.png" width="128" height="128" alt="Voice Clone app icon: seven vertical bars forming a sound wave, white with a coral bar in the middle, on a dark blue rounded square">
+</p>
 
-voice-clone copies a voice on your own Mac and speaks typed text in that voice. It uses VoxCPM2, OpenBMB's open text-to-speech model (Apache-2.0, Hugging Face id `openbmb/VoxCPM2`). You record about 1.5 minutes of a voice, or upload a recording. Then you type text, and the app makes an audio file of it.
+<h1 align="center">Voice Clone</h1>
 
-The project has a web interface with three tabs (Record voice, Speak, Files), a Mac app that wraps the interface, an installer, and command-line scripts. Everything runs on this Mac. Recordings, texts and generated audio never leave it. The only network use is downloading and checking software and models (see [Privacy](#privacy)).
+<p align="center">
+  Clones your voice from a short recording and speaks any text in it, locally on a Mac, with OpenBMB's VoxCPM2.
+</p>
 
-![The Speak tab: the voice Demo is selected, three lines of text are typed, and the bar under Generate says "Ready."](docs/screenshots/speak.png)
+<p align="center">
+  <img src="https://img.shields.io/badge/platform-macOS%2012%2B%20Apple%20Silicon-lightgrey" alt="Platform: macOS 12 or later, Apple Silicon">
+  <img src="https://img.shields.io/badge/Python-3.11-blue" alt="Python 3.11">
+  <img src="https://img.shields.io/badge/Swift-5.8-orange" alt="Swift 5.8, for the desktop app">
+  <a href="https://huggingface.co/openbmb/VoxCPM2"><img src="https://img.shields.io/badge/model-VoxCPM2%20(Apache--2.0)-green" alt="Model: VoxCPM2, Apache-2.0"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue" alt="License: MIT"></a>
+</p>
 
-The screenshots in this README come from a demo copy of the app with a stand-in model that speaks with the macOS `say` command instead of VoxCPM2. The voice "Demo" was also made with `say`. The times and sounds in the screenshots are not measurements, and the folder paths in them are shortened to `/Users/you/voice-clone`.
+<p align="center">
+  <img src="docs/screenshots/record-voice-dark.png" width="680" alt="The Record voice tab in dark mode: the recording script on the left; on the right the recording with its waveform, the voice name Demo, the transcript, the Save voice button, the status line and the saved voice player">
+</p>
 
-## Contents
+<table>
+  <tr>
+    <th align="center">Speak</th>
+    <th align="center">Generating</th>
+  </tr>
+  <tr>
+    <td><img src="docs/screenshots/speak.png" width="400" alt="The Speak tab: the voice Demo is selected, three lines of text are typed, and the bar under Generate says Ready"></td>
+    <td><img src="docs/screenshots/speak-running.png" width="400" alt="The Speak tab during a run of three lines: the bar under Generate shows 46 percent, clip 2 of 3, 1.6 seconds of speech made, and the Result player holds the first clip"></td>
+  </tr>
+</table>
 
-- [Terms](#terms)
-- [Requirements](#requirements)
-- [Install](#install)
-- [The Mac app](#the-mac-app)
-- [Recording a voice](#recording-a-voice)
-- [Generating speech](#generating-speech)
-- [The progress bar](#the-progress-bar)
-- [The Files tab](#the-files-tab)
-- [Command line](#command-line)
-- [Models and where they are stored](#models-and-where-they-are-stored)
-- [Memory and speed](#memory-and-speed)
-- [Privacy](#privacy)
-- [Troubleshooting](#troubleshooting)
-- [Tests](#tests)
-- [Project layout](#project-layout)
-- [License](#license)
+The screenshots come from a demo copy of the app with a stand-in model that speaks with the macOS `say` command instead of VoxCPM2. The voice "Demo" was also made with `say`. The voice, the texts and the sounds in them are made up, the times are not measurements, and the folder paths are shortened to `/Users/you/voice-clone`.
 
-## Terms
+## Features
 
-- **VoxCPM2**: the text-to-speech model. It makes speech from text and copies a voice from a recording.
-- **Reference recording**: the recording of the voice to copy. The app saves it as `voices/<name>.wav`.
-- **Transcript**: the exact words spoken in the reference recording, as text. The app saves it as `voices/<name>.txt`.
-- **Voice**: a reference recording and its transcript, kept under one name in `voices/`.
-- **Clip**: one generated audio file.
-- **Mode**: how the model gets the voice. "Recording + transcript" passes the recording and its words. "Recording only" passes the recording alone.
-- **cfg**: the classifier-free guidance scale, a number from 1.0 to 3.0 in the app (default 2.0). It sets how strongly the model is pushed toward the voice and the text.
-- **steps**: the number of diffusion sampling steps the model takes for each piece of speech, from 4 to 30 in the app (default 10). The steps of the progress bar are something else (see [The progress bar](#the-progress-bar)).
-- **Precision**: the number format of the model, float16 or float32. float16 needs about half the memory.
-- **Denoise**: an option that removes background noise from the reference recording, with a small second model, before the model uses it.
-- **MPS**: the GPU backend of PyTorch on Apple Silicon. The web interface always uses it.
-- **Server**: the program `app.py`. It serves the web interface on this Mac at http://127.0.0.1:7860.
+- Records a voice in one take, about 1.5 minutes of reading a script with ten speaking styles, or takes an uploaded audio file. The recording and its transcript are saved as a voice under one name.
+- Speaks typed text in a saved voice with VoxCPM2, OpenBMB's open text-to-speech model (Apache-2.0, Hugging Face id `openbmb/VoxCPM2`). Two modes: "Recording + transcript (closest match)", and "Recording only (allows style prefix)", where the text can start with a style such as `(slower, warm)`.
+- One file per line: each non-empty line becomes its own 48 kHz WAV clip. Existing files are never overwritten.
+- Settings for the precision (float16 by default, which needs about half the memory of float32), cfg, steps, optional denoising of the reference recording, the output folder and the file name.
+- One progress bar for the whole run: the percentage, the elapsed time, what is happening in plain words, and the steps of the clip being made.
+- A Files tab that lists the generated clips, newest first, and plays them or shows them in Finder.
+- A web interface with three tabs (Record voice, Speak, Files) at http://127.0.0.1:7860, and a Mac app, "Voice Clone.app", that shows it in a window of its own or in your default browser.
+- An installer, `install.sh`, that sets up the Python environment, downloads the models and installs the Mac app.
+- Command-line scripts: `record.sh` records a voice, `clone.py` speaks text, `demo.py` checks the install.
+- Everything runs on this Mac. Recordings, texts and generated audio never leave it. The only network use is downloading and checking software and models. See [Privacy](#privacy).
 
 ## Requirements
 
@@ -50,11 +54,11 @@ The screenshots in this README come from a demo copy of the app with a stand-in 
 - Disk space: VoxCPM2 is 4.6 GiB, the denoiser 18.2 MiB, and the Python environment `.venv` 1.6 GiB (measured with `du` on the author's Mac). The installer stops if the free space is smaller than the model download plus 1 GiB.
 - Network access for the install: Homebrew, PyPI, Hugging Face and ModelScope.
 - ffmpeg and uv. The installer installs them with Homebrew if they are missing. It does not install Homebrew itself.
-- The Command Line Tools (`xcode-select --install`), only for the desktop app. They provide `swiftc` and the macOS SDK.
+- The Command Line Tools (`xcode-select --install`), only for the desktop app. They provide `swiftc` and the macOS SDK. The desktop app is built with Swift 5.8.1 on the author's Mac.
 - Python 3.11. The installer asks uv to create the environment, so you do not install Python yourself.
 - A microphone, or audio files to upload.
 
-## Install
+## Installation
 
 ```
 git clone https://github.com/SaschaKubisch/voice-clone.git
@@ -66,10 +70,12 @@ The installer sets up everything. Afterwards Generate needs no further download.
 
 Options:
 
-- `--browser`: install the browser app instead of the desktop app (see [The Mac app](#the-mac-app)).
-- `--no-app`: skip the Mac app. Start the interface with `start.command` or `.venv/bin/python app.py`.
-- `--no-models`: skip the model downloads. The first Generate downloads VoxCPM2 instead.
-- `-h`, `--help`: print the usage.
+| Option | Result |
+| --- | --- |
+| `--browser` | Install the browser app instead of the desktop app (see [The Mac app](#the-mac-app)). |
+| `--no-app` | Skip the Mac app. Start the interface with `start.command` or `.venv/bin/python app.py`. |
+| `--no-models` | Skip the model downloads. The first Generate downloads VoxCPM2 instead. |
+| `-h`, `--help` | Print the usage. |
 
 What it does, in this order:
 
@@ -94,12 +100,215 @@ uv pip install --python .venv/bin/python -r requirements.txt
 
 `requirements.txt` pins the versions the scripts were tested with (voxcpm 2.0.3, torch 2.14.1, gradio 6.30.0). If the models are not downloaded, the first Generate downloads the VoxCPM2 weights into `~/.cache/huggingface`.
 
-### Start without the Mac app
+## Usage
+
+### Terms
+
+- **VoxCPM2**: the text-to-speech model. It makes speech from text and copies a voice from a recording.
+- **Reference recording**: the recording of the voice to copy. The app saves it as `voices/<name>.wav`.
+- **Transcript**: the exact words spoken in the reference recording, as text. The app saves it as `voices/<name>.txt`.
+- **Voice**: a reference recording and its transcript, kept under one name in `voices/`.
+- **Clip**: one generated audio file.
+- **Mode**: how the model gets the voice. "Recording + transcript" passes the recording and its words. "Recording only" passes the recording alone.
+- **cfg**: the classifier-free guidance scale, a number from 1.0 to 3.0 in the app (default 2.0). It sets how strongly the model is pushed toward the voice and the text.
+- **steps**: the number of diffusion sampling steps the model takes for each piece of speech, from 4 to 30 in the app (default 10). The steps of the progress bar are something else (see [The progress bar](#the-progress-bar)).
+- **Precision**: the number format of the model, float16 or float32. float16 needs about half the memory.
+- **Denoise**: an option that removes background noise from the reference recording, with a small second model, before the model uses it.
+- **MPS**: the GPU backend of PyTorch on Apple Silicon. The web interface always uses it.
+- **Server**: the program `app.py`. It serves the web interface on this Mac at http://127.0.0.1:7860.
+
+### Starting the app
+
+With the Mac app, open Voice Clone from Launchpad or Spotlight (see [The Mac app](#the-mac-app)). Without it:
 
 - Double-click `start.command` in Finder. It starts the server in a Terminal window and opens the browser. When the server stops, the window asks you to press Return.
 - Or run `.venv/bin/python app.py` in this folder. It also opens the browser.
 
-The page is at http://127.0.0.1:7860. The server listens on this machine only. Press Ctrl-C in the Terminal window to stop it.
+The page, titled "VoxCPM2 voice studio", is at http://127.0.0.1:7860. The server listens on this machine only. Press Ctrl-C in the Terminal window to stop it.
+
+### Recording a voice
+
+Open the Record voice tab. It shows `voice-script.md` on the left and the recording controls on the right.
+
+![The Record voice tab after a voice was saved: the script on the left, the recording, the name Demo, the transcript, and the status line on the right](docs/screenshots/record-voice.png)
+
+1. Read `voice-script.md`. It has ten sections, one mood each: calm, happy, sad, surprised, cross, friendly, clear, tricky sounds, quiet then loud, calm and kind. The words are easy. All ten sections are 234 spoken words, about 1.5 minutes. The italic line under each heading is a reading direction. It is not read aloud.
+2. Press Record and read all ten sections in one take. Or use the small upload icon under the box and choose an audio file. The microphone icon next to it switches back.
+3. Enter a **Voice name**. The box starts with `me`. Letters, digits, dot, dash and underscore are kept, every other character becomes `_`, and the name is cut to 60 characters.
+4. Check the **Transcript**. It is filled with the spoken text only. The title, the intro, the headings and the reading directions are left out. The transcript must match the words you say. Edit it if you changed, skipped or added words. Leave it empty if you do not have one. Then only the "Recording only" mode works for this voice.
+5. Press **Save voice**. The status line shows the file, its length and the changes made. The saved voice plays in the box below, and it is selected in the Speak tab.
+
+Tips for the recording:
+
+- Record in a quiet room, in one take, all ten sections.
+- Pause briefly between sections.
+- Stop recording about one second after the last word.
+- Read the way each direction says. The sections cover different speaking styles on purpose.
+
+What saving does:
+
+- The recording becomes a mono 48 kHz 16-bit WAV.
+- Silence at the start and the end is cut to at most about 0.5 s (threshold -50 dB). Pauses inside the speech are not touched. If the room noise is louder than -50 dB, the ends are not cut.
+- If less than 1 s is left after the cut, nothing is saved and the app says "No speech found". Check the microphone.
+- If the name exists, nothing is saved until you tick **Overwrite if the name exists**. A save that fails keeps the old voice.
+- The saved duration is shown next to the player.
+
+A long reference makes every generation slower, because the model processes the reference again on each call. `voxcpm_patch.py` keeps the memory use of a long reference down (see [Memory and speed](#memory-and-speed)).
+
+The recording step also exists on the command line (`record.sh`, see [Command line](#command-line)).
+
+### Generating speech
+
+Open the Speak tab (the left screenshot at the top shows it). Choose a voice, type text and press Generate. The first Generate loads the model, which takes longer than the later ones. The model stays loaded until the app stops.
+
+| Setting | What it does |
+| --- | --- |
+| **Voice** | The saved voice to copy. The list is read when the app starts. Saving a voice updates it. Press **Refresh voices** after you copy files into `voices/` by hand. |
+| **Mode** | "Recording + transcript (closest match)" passes the recording with its exact words. It gives the closest match of voice, rhythm and pronunciation. The voice needs a transcript, and the transcript must match what was said. "Recording only (allows style prefix)" passes the recording alone. Here the text can start with a style instruction in parentheses, for example `(slower, warm)Hello`. In the first mode a text that starts with `(` is refused. |
+| **Precision** | float16 (default) or float32. float16 needs about half the memory. Changing it frees the loaded model and loads it again in the new precision on the next Generate. See [Memory and speed](#memory-and-speed). |
+| **Text to speak** | What the voice says. Without "One file per line", line breaks are joined with spaces into one clip. The app does not run VoxCPM's text normalization. |
+| **One file per line** | Each non-empty line becomes its own clip and its own file. The progress bar then says "Clip 2 of 3". |
+| **cfg** | The guidance scale, 1.0 to 3.0 in steps of 0.1. Default 2.0. |
+| **steps** | The diffusion sampling steps, 4 to 30. Default 10. |
+| **Denoise the reference recording** | Removes background noise from the recording before the model uses it. The first use loads an extra model (18.2 MiB, see [Models and where they are stored](#models-and-where-they-are-stored)). Every clip then cleans and reads the recording again, so each clip takes longer. |
+| **Output folder** | Where the files go. The default is `outputs` in this folder. A path that starts with `~` is expanded. A relative path counts from this folder. The folder is created if it does not exist. **Choose folder...** opens the macOS folder dialog. |
+| **File name (optional)** | Blank: the name is made from a timestamp and the first words of the line. Typed: the name you give, with or without `.wav`. |
+
+Defaults 2.0 and 10 are the defaults of VoxCPM. The ranges are the ranges that `clone.py` recommends.
+
+#### Output files
+
+Files are WAV at 48 kHz. Existing files are never overwritten.
+
+| Case | File name |
+| --- | --- |
+| Blank name, one clip | `20261025-220554_good_morning_and_welcome._this_is.wav` |
+| Blank name, several lines | `20261025-220554_01_good_morning_and_welcome._this_is.wav`, then `_02_`, and so on |
+| Name `greeting`, one clip | `greeting.wav` |
+| Name `greeting`, several lines | `greeting_01.wav`, `greeting_02.wav` |
+| The file exists already | `_2`, `_3` is added: `greeting_2.wav` |
+
+The automatic name is the time, the line number when there are several lines, and the first six words of the line (cut to 40 characters, lower case, other characters replaced by `_`). A style prefix in parentheses is left out of the name. Names you type are cleaned the same way as voice names.
+
+#### What to change for which effect
+
+This project has not measured how cfg and steps change the sound. The advice below follows from the settings and from the code of voxcpm. Change one setting at a time and generate the same text again to compare. Results can differ from run to run, because the app sets no random seed. For style control, the VoxCPM2 model card says results vary and recommends generating 1 to 3 times.
+
+| You want | Change |
+| --- | --- |
+| A closer copy of the voice | Use "Recording + transcript", and check that the transcript matches the recording word for word. Use a clean recording of the full script. |
+| A style, such as slower or warmer | Use "Recording only" and start the text with `(slower, warm)`. |
+| Less background noise in the result | Tick Denoise, or record again in a quieter room. |
+| The voice followed more or less strictly | Raise or lower cfg inside 1.0 to 3.0. cfg 1.0 is the plain prediction. A higher value pushes the result further toward the voice and the text. |
+| A faster result | Lower steps. Each model step runs the diffusion decoder once per sampling step, so more steps take longer. Also keep Denoise off and use float16 and a shorter reference. |
+| A more careful result | Raise steps up to 30. The cost is time. Whether it sounds better was not measured here. |
+| A word or number read wrongly | Write it out in words, for example "forty-two". |
+| A long text | Put it on several lines and use "One file per line". The model card warns about occasional instability with very long inputs. |
+| Less memory | Keep float16. |
+
+### The progress bar
+
+One bar sits under the Generate button. It shows the percentage of the whole run, the elapsed time, what is happening now in plain words, and a second line with details. The page changes at most twice a second, and only when something changed. Gradio's own progress overlay is off for this event.
+
+![The bar in the middle of a run of three lines: 45 percent, clip 2 of 3, 1.6 seconds of speech made](docs/screenshots/progress-running.png)
+
+![The bar when the run is finished: 100 percent, green, with the result player and the list of saved files](docs/screenshots/progress-done.png)
+
+What the bar shows:
+
+| Bar text | What is happening |
+| --- | --- |
+| Loading the model (first time only) | VoxCPM2 loads into memory. The second line names the precision and the expected time (about 1 minute for float16, 2-4 minutes for float32). The bar is a faded striped bar without a percentage. |
+| Loading the model again, because the precision changed | The old model is freed and the new one loads. |
+| Loading the denoiser (first time only) | Only with Denoise ticked. |
+| Clip 2 of 3: Cleaning up the voice recording (denoiser) | Only with Denoise ticked. |
+| Reading the voice recording | The model reads the reference recording. |
+| Preparing the text | The model prepares the text. |
+| Clip 2 of 3: 1.6 s of speech made | The model makes speech. The second line says "Step 10 of about 27, about 4 s of speech expected." |
+| Checking the take | The model checks the length of the take. |
+| Turning the speech into sound | The audio is decoded. |
+| Saving the clip | The file is written. |
+| Saved clip 2 of 3: name (3.8 s of speech) | Between two clips. |
+| Done: saved 3 files in the output folder in 0:23 | The run is finished. The bar is green and shows 100%. |
+| Stopped: the error message | The run failed. The bar is red. Nothing more is made. Press Generate to try again. |
+
+The text "Clip 2 of 3:" appears only when the run has several clips. "(try 2)" and "The first take was too long for the text, so it is made again" mean that VoxCPM repeated the take, which it does up to three times when a take is far too long for the text. "Longer than first estimated" means the clip ran past its estimate.
+
+How the bar is worked out:
+
+- The model makes speech in steps. One step makes 0.16 s of audio (6.25 steps per second). These are not the steps of the steps slider. `voxcpm_patch.py` counts the steps of the generation loop of voxcpm without changing it, so the audio is the same. The bar of a clip moves with the steps.
+- Reading the voice, preparing the text, turning the speech into sound, saving and loading the model have no step count. The bar stands still or shows a striped bar there, and the second line says so.
+- The number of steps of a clip is estimated from the text before it starts: characters times 6.25 divided by the characters per second of the chosen voice (its transcript length over its recording length, limited to 8-20; 15 without a transcript). After each clip the measured steps per character replace the estimate for that voice. When a clip runs past its estimate, the estimate grows and the bar keeps rising, but it shows 100% only after the last clip is saved.
+- Several clips ("one file per line"): the bar is (finished clips + part of the current clip) divided by the number of clips.
+
+`tests/test_progress_ui.py` checks the bar with a stand-in model on port 7861 and never loads the real model. `tests/test_progress_hook.py` checks the step counting without loading the model.
+
+Below the bar, the **Result** player plays the last clip. The **Saved files** box lists one line per clip: the path, the seconds of audio, the steps made, the estimate and the generation time.
+
+### The Files tab
+
+The Files tab lists the `.wav` files in the output folder of the Speak tab, newest first, with the date of each file.
+
+![The Files tab with the list of demo clips open](docs/screenshots/files.png)
+
+- The list refreshes when you open the tab. **Refresh list** reads the folder again.
+- Choosing a file loads it into the **Player** and shows its path and length in the status line.
+- **Reveal in Finder** selects the chosen file in a Finder window.
+- If the output folder does not exist yet, the status line says so.
+
+### Command line
+
+Run these from this folder. The scripts use the `.venv` that the installer made.
+
+```
+bash record.sh                                           # records you reading voice-script.md: 100 s, writes voices/me.wav, cuts silence at both ends
+bash record.sh voices/myvoice.wav 150                    # another file name and length in seconds
+.venv/bin/python -c "from app import script_transcript as s; print(s('voice-script.md'))" > voices/myvoice.txt
+.venv/bin/python clone.py --ref voices/myvoice.wav --ref-text-file voices/myvoice.txt --text "Hello." --out outputs/hello.wav
+.venv/bin/python clone.py --ref voices/myvoice.wav            # type one line per clip; an empty line ends
+.venv/bin/python clone.py --ref voices/myvoice.wav --dtype float32 --text "Hello."   # float32 instead of the default float16
+.venv/bin/python demo.py mps                                  # speech without cloning, as an install check
+```
+
+#### record.sh
+
+`bash record.sh [OUTPUT_PATH] [SECONDS]` counts down from 3, then records the microphone for the given number of seconds, or until Ctrl-C, and keeps what was recorded. The default is `voices/me.wav` and 100 s. It cuts the silence at both ends the way the app does. It writes only the WAV, no transcript.
+
+The script records from the device named `MacBook Air Microphone` and uses `/opt/homebrew/bin/ffmpeg`. For another microphone, change `DEVICE` at the top of `record.sh`. To list the device names:
+
+```
+ffmpeg -f avfoundation -list_devices true -i ""
+```
+
+The command ends with an error line. The list above it is the result.
+
+`voices/myvoice.txt` is the transcript file. The app writes the same kind of file next to the WAV when you save a voice. After `record.sh`, the `python -c` line above writes it from `voice-script.md`. Without a transcript file, use `clone.py --ref` alone (reference only).
+
+#### clone.py
+
+`clone.py` loads the model once, then makes one clip per text. Run `.venv/bin/python clone.py --help` for the full text.
+
+| Option | Meaning |
+| --- | --- |
+| `--ref PATH` | The reference recording. Required. |
+| `--ref-text TEXT`, `--ref-text-file PATH` | The exact words spoken in the recording. With either one, the mode is reference + continuation (highest fidelity), the same as "Recording + transcript" in the app. Without them, only the recording is used. Use one of the two, not both. |
+| `--text TEXT` | One text, one clip. Written to `--out`, or to `outputs/output_001.wav`. |
+| `--text-file PATH` | A file with one text per non-empty line, one clip each: `output_001.wav`, `output_002.wav` and so on, in `--out-dir`. A line that fails is reported and the next one runs. |
+| no text option | Type one sentence per line at the prompt. An empty line or Ctrl-D ends. Files are `output_NNN.wav` and take the next free number. |
+| `--out PATH` | The output file for `--text`. |
+| `--out-dir DIR` | The folder for the other cases. Default: `outputs/` next to the script. |
+| `--device DEVICE` | `mps` (default), `cpu`, `cuda` or `auto`. |
+| `--dtype float16\|float32` | The precision on MPS. Default float16. |
+| `--cfg`, `--steps` | Defaults 2.0 and 10. The script accepts 0.1 to 10.0 and 1 to 100, and recommends 1.0 to 3.0 and 4 to 30. |
+| `--denoise` | Loads the denoiser and cleans the reference recording. |
+
+A style prefix such as `(slower, warm)Hello` is meant for the mode without a transcript. The app refuses it in the other mode. `clone.py` does not check it.
+
+With `--text` and `--text-file`, an existing `output_NNN.wav` or `--out` file is overwritten. The app never does that.
+
+#### demo.py
+
+`demo.py [DEVICE] [OUTPUT_PATH]` speaks one fixed sentence without cloning and writes `demo.wav` (or the path you give) in the current folder. It prints the device, the generation time and the length of the audio. It loads the model through voxcpm directly, not through `voxcpm_patch.py`, so on Apple Silicon it runs in float32. That is the larger of the two precisions (see [Memory and speed](#memory-and-speed)). Quit the Mac app before you run it.
 
 ## The Mac app
 
@@ -111,9 +320,7 @@ The page is at http://127.0.0.1:7860. The server listens on this machine only. P
 | Needs | The Command Line Tools for `swiftc`, and macOS 12 or newer. No Xcode project, no new dependency. | Nothing extra. |
 | Install | `bash install.sh` or `bash make-app.sh --install` | `bash install.sh --browser` or `bash make-app.sh --install --browser` |
 
-The icon is a sound wave on a dark blue rounded square. `macapp/make_icon.py` draws it.
-
-![The app icon](docs/screenshots/app-icon.png)
+The icon, shown at the top of this file, is a sound wave on a dark blue rounded square. `macapp/make_icon.py` draws it, and `docs/icon.png` is its render at 256 pixels.
 
 ### Install and switch
 
@@ -174,190 +381,6 @@ The first time you record in the Record voice tab, macOS asks to allow the micro
 - **Open** it from Launchpad. If the server already answers, the app only opens the page in the browser. Otherwise it starts the server, waits, then opens the browser once. Clicking the app again in the Dock or Launchpad opens the page again.
 - **Quit** (Cmd-Q, or Dock, Quit) stops the server this app started. Closing the browser tab does not.
 - If the server does not start, a dialog names the log file and has an Open Log button.
-
-## Recording a voice
-
-Open the Record voice tab. It shows `voice-script.md` on the left and the recording controls on the right.
-
-![The Record voice tab after a voice was saved: the script on the left, the recording, the name Demo, the transcript, and the status line on the right](docs/screenshots/record-voice.png)
-
-1. Read `voice-script.md`. It has ten sections, one mood each: calm, happy, sad, surprised, cross, friendly, clear, tricky sounds, quiet then loud, calm and kind. The words are easy. All ten sections are 234 spoken words, about 1.5 minutes. The italic line under each heading is a reading direction. It is not read aloud.
-2. Press Record and read all ten sections in one take. Or use the small upload icon under the box and choose an audio file. The microphone icon next to it switches back.
-3. Enter a **Voice name**. The box starts with `me`. Letters, digits, dot, dash and underscore are kept, every other character becomes `_`, and the name is cut to 60 characters.
-4. Check the **Transcript**. It is filled with the spoken text only. The title, the intro, the headings and the reading directions are left out. The transcript must match the words you say. Edit it if you changed, skipped or added words. Leave it empty if you do not have one. Then only the "Recording only" mode works for this voice.
-5. Press **Save voice**. The status line shows the file, its length and the changes made. The saved voice plays in the box below, and it is selected in the Speak tab.
-
-Tips for the recording:
-
-- Record in a quiet room, in one take, all ten sections.
-- Pause briefly between sections.
-- Stop recording about one second after the last word.
-- Read the way each direction says. The sections cover different speaking styles on purpose.
-
-What saving does:
-
-- The recording becomes a mono 48 kHz 16-bit WAV.
-- Silence at the start and the end is cut to at most about 0.5 s (threshold -50 dB). Pauses inside the speech are not touched. If the room noise is louder than -50 dB, the ends are not cut.
-- If less than 1 s is left after the cut, nothing is saved and the app says "No speech found". Check the microphone.
-- If the name exists, nothing is saved until you tick **Overwrite if the name exists**. A save that fails keeps the old voice.
-- The saved duration is shown next to the player.
-
-A long reference makes every generation slower, because the model processes the reference again on each call. `voxcpm_patch.py` keeps the memory use of a long reference down (see [Memory and speed](#memory-and-speed)).
-
-The recording step also exists on the command line (`record.sh`, see [Command line](#command-line)).
-
-## Generating speech
-
-Open the Speak tab (the screenshot at the top shows it). Choose a voice, type text and press Generate. The first Generate loads the model, which takes longer than the later ones. The model stays loaded until the app stops.
-
-| Setting | What it does |
-| --- | --- |
-| **Voice** | The saved voice to copy. The list is read when the app starts. Saving a voice updates it. Press **Refresh voices** after you copy files into `voices/` by hand. |
-| **Mode** | "Recording + transcript (closest match)" passes the recording with its exact words. It gives the closest match of voice, rhythm and pronunciation. The voice needs a transcript, and the transcript must match what was said. "Recording only (allows style prefix)" passes the recording alone. Here the text can start with a style instruction in parentheses, for example `(slower, warm)Hello`. In the first mode a text that starts with `(` is refused. |
-| **Precision** | float16 (default) or float32. float16 needs about half the memory. Changing it frees the loaded model and loads it again in the new precision on the next Generate. See [Memory and speed](#memory-and-speed). |
-| **Text to speak** | What the voice says. Without "One file per line", line breaks are joined with spaces into one clip. The app does not run VoxCPM's text normalization. |
-| **One file per line** | Each non-empty line becomes its own clip and its own file. The progress bar then says "Clip 2 of 3". |
-| **cfg** | The guidance scale, 1.0 to 3.0 in steps of 0.1. Default 2.0. |
-| **steps** | The diffusion sampling steps, 4 to 30. Default 10. |
-| **Denoise the reference recording** | Removes background noise from the recording before the model uses it. The first use loads an extra model (18.2 MiB, see [Models and where they are stored](#models-and-where-they-are-stored)). Every clip then cleans and reads the recording again, so each clip takes longer. |
-| **Output folder** | Where the files go. The default is `outputs` in this folder. A path that starts with `~` is expanded. A relative path counts from this folder. The folder is created if it does not exist. **Choose folder...** opens the macOS folder dialog. |
-| **File name (optional)** | Blank: the name is made from a timestamp and the first words of the line. Typed: the name you give, with or without `.wav`. |
-
-Defaults 2.0 and 10 are the defaults of VoxCPM. The ranges are the ranges that `clone.py` recommends.
-
-### Output files
-
-Files are WAV at 48 kHz. Existing files are never overwritten.
-
-| Case | File name |
-| --- | --- |
-| Blank name, one clip | `20261025-220554_good_morning_and_welcome._this_is.wav` |
-| Blank name, several lines | `20261025-220554_01_good_morning_and_welcome._this_is.wav`, then `_02_`, and so on |
-| Name `greeting`, one clip | `greeting.wav` |
-| Name `greeting`, several lines | `greeting_01.wav`, `greeting_02.wav` |
-| The file exists already | `_2`, `_3` is added: `greeting_2.wav` |
-
-The automatic name is the time, the line number when there are several lines, and the first six words of the line (cut to 40 characters, lower case, other characters replaced by `_`). A style prefix in parentheses is left out of the name. Names you type are cleaned the same way as voice names.
-
-### What to change for which effect
-
-This project has not measured how cfg and steps change the sound. The advice below follows from the settings and from the code of voxcpm. Change one setting at a time and generate the same text again to compare. Results can differ from run to run, because the app sets no random seed. For style control, the VoxCPM2 model card says results vary and recommends generating 1 to 3 times.
-
-| You want | Change |
-| --- | --- |
-| A closer copy of the voice | Use "Recording + transcript", and check that the transcript matches the recording word for word. Use a clean recording of the full script. |
-| A style, such as slower or warmer | Use "Recording only" and start the text with `(slower, warm)`. |
-| Less background noise in the result | Tick Denoise, or record again in a quieter room. |
-| The voice followed more or less strictly | Raise or lower cfg inside 1.0 to 3.0. cfg 1.0 is the plain prediction. A higher value pushes the result further toward the voice and the text. |
-| A faster result | Lower steps. Each model step runs the diffusion decoder once per sampling step, so more steps take longer. Also keep Denoise off and use float16 and a shorter reference. |
-| A more careful result | Raise steps up to 30. The cost is time. Whether it sounds better was not measured here. |
-| A word or number read wrongly | Write it out in words, for example "forty-two". |
-| A long text | Put it on several lines and use "One file per line". The model card warns about occasional instability with very long inputs. |
-| Less memory | Keep float16. |
-
-## The progress bar
-
-One bar sits under the Generate button. It shows the percentage of the whole run, the elapsed time, what is happening now in plain words, and a second line with details. The page changes at most twice a second, and only when something changed. Gradio's own progress overlay is off for this event.
-
-![The bar in the middle of a run of three lines: 45 percent, clip 2 of 3, 1.6 seconds of speech made](docs/screenshots/progress-running.png)
-
-![The bar when the run is finished: 100 percent, green, with the result player and the list of saved files](docs/screenshots/progress-done.png)
-
-What the bar shows:
-
-| Bar text | What is happening |
-| --- | --- |
-| Loading the model (first time only) | VoxCPM2 loads into memory. The second line names the precision and the expected time (about 1 minute for float16, 2-4 minutes for float32). The bar is a faded striped bar without a percentage. |
-| Loading the model again, because the precision changed | The old model is freed and the new one loads. |
-| Loading the denoiser (first time only) | Only with Denoise ticked. |
-| Clip 2 of 3: Cleaning up the voice recording (denoiser) | Only with Denoise ticked. |
-| Reading the voice recording | The model reads the reference recording. |
-| Preparing the text | The model prepares the text. |
-| Clip 2 of 3: 1.6 s of speech made | The model makes speech. The second line says "Step 10 of about 27, about 4 s of speech expected." |
-| Checking the take | The model checks the length of the take. |
-| Turning the speech into sound | The audio is decoded. |
-| Saving the clip | The file is written. |
-| Saved clip 2 of 3: name (3.8 s of speech) | Between two clips. |
-| Done: saved 3 files in the output folder in 0:23 | The run is finished. The bar is green and shows 100%. |
-| Stopped: the error message | The run failed. The bar is red. Nothing more is made. Press Generate to try again. |
-
-The text "Clip 2 of 3:" appears only when the run has several clips. "(try 2)" and "The first take was too long for the text, so it is made again" mean that VoxCPM repeated the take, which it does up to three times when a take is far too long for the text. "Longer than first estimated" means the clip ran past its estimate.
-
-How the bar is worked out:
-
-- The model makes speech in steps. One step makes 0.16 s of audio (6.25 steps per second). These are not the steps of the steps slider. `voxcpm_patch.py` counts the steps of the generation loop of voxcpm without changing it, so the audio is the same. The bar of a clip moves with the steps.
-- Reading the voice, preparing the text, turning the speech into sound, saving and loading the model have no step count. The bar stands still or shows a striped bar there, and the second line says so.
-- The number of steps of a clip is estimated from the text before it starts: characters times 6.25 divided by the characters per second of the chosen voice (its transcript length over its recording length, limited to 8-20; 15 without a transcript). After each clip the measured steps per character replace the estimate for that voice. When a clip runs past its estimate, the estimate grows and the bar keeps rising, but it shows 100% only after the last clip is saved.
-- Several clips ("one file per line"): the bar is (finished clips + part of the current clip) divided by the number of clips.
-
-`tests/test_progress_ui.py` checks the bar with a stand-in model on port 7861 and never loads the real model. `tests/test_progress_hook.py` checks the step counting without loading the model.
-
-Below the bar, the **Result** player plays the last clip. The **Saved files** box lists one line per clip: the path, the seconds of audio, the steps made, the estimate and the generation time.
-
-## The Files tab
-
-The Files tab lists the `.wav` files in the output folder of the Speak tab, newest first, with the date of each file.
-
-![The Files tab with the list of demo clips open](docs/screenshots/files.png)
-
-- The list refreshes when you open the tab. **Refresh list** reads the folder again.
-- Choosing a file loads it into the **Player** and shows its path and length in the status line.
-- **Reveal in Finder** selects the chosen file in a Finder window.
-- If the output folder does not exist yet, the status line says so.
-
-## Command line
-
-Run these from this folder. The scripts use the `.venv` that the installer made.
-
-```
-bash record.sh                                           # records you reading voice-script.md: 100 s, writes voices/me.wav, cuts silence at both ends
-bash record.sh voices/myvoice.wav 150                    # another file name and length in seconds
-.venv/bin/python -c "from app import script_transcript as s; print(s('voice-script.md'))" > voices/myvoice.txt
-.venv/bin/python clone.py --ref voices/myvoice.wav --ref-text-file voices/myvoice.txt --text "Hello." --out outputs/hello.wav
-.venv/bin/python clone.py --ref voices/myvoice.wav            # type one line per clip; an empty line ends
-.venv/bin/python clone.py --ref voices/myvoice.wav --dtype float32 --text "Hello."   # float32 instead of the default float16
-.venv/bin/python demo.py mps                                  # speech without cloning, as an install check
-```
-
-### record.sh
-
-`bash record.sh [OUTPUT_PATH] [SECONDS]` counts down from 3, then records the microphone for the given number of seconds, or until Ctrl-C, and keeps what was recorded. The default is `voices/me.wav` and 100 s. It cuts the silence at both ends the way the app does. It writes only the WAV, no transcript.
-
-The script records from the device named `MacBook Air Microphone` and uses `/opt/homebrew/bin/ffmpeg`. For another microphone, change `DEVICE` at the top of `record.sh`. To list the device names:
-
-```
-ffmpeg -f avfoundation -list_devices true -i ""
-```
-
-The command ends with an error line. The list above it is the result.
-
-`voices/myvoice.txt` is the transcript file. The app writes the same kind of file next to the WAV when you save a voice. After `record.sh`, the `python -c` line above writes it from `voice-script.md`. Without a transcript file, use `clone.py --ref` alone (reference only).
-
-### clone.py
-
-`clone.py` loads the model once, then makes one clip per text. Run `.venv/bin/python clone.py --help` for the full text.
-
-| Option | Meaning |
-| --- | --- |
-| `--ref PATH` | The reference recording. Required. |
-| `--ref-text TEXT`, `--ref-text-file PATH` | The exact words spoken in the recording. With either one, the mode is reference + continuation (highest fidelity), the same as "Recording + transcript" in the app. Without them, only the recording is used. Use one of the two, not both. |
-| `--text TEXT` | One text, one clip. Written to `--out`, or to `outputs/output_001.wav`. |
-| `--text-file PATH` | A file with one text per non-empty line, one clip each: `output_001.wav`, `output_002.wav` and so on, in `--out-dir`. A line that fails is reported and the next one runs. |
-| no text option | Type one sentence per line at the prompt. An empty line or Ctrl-D ends. Files are `output_NNN.wav` and take the next free number. |
-| `--out PATH` | The output file for `--text`. |
-| `--out-dir DIR` | The folder for the other cases. Default: `outputs/` next to the script. |
-| `--device DEVICE` | `mps` (default), `cpu`, `cuda` or `auto`. |
-| `--dtype float16\|float32` | The precision on MPS. Default float16. |
-| `--cfg`, `--steps` | Defaults 2.0 and 10. The script accepts 0.1 to 10.0 and 1 to 100, and recommends 1.0 to 3.0 and 4 to 30. |
-| `--denoise` | Loads the denoiser and cleans the reference recording. |
-
-A style prefix such as `(slower, warm)Hello` is meant for the mode without a transcript. The app refuses it in the other mode. `clone.py` does not check it.
-
-With `--text` and `--text-file`, an existing `output_NNN.wav` or `--out` file is overwritten. The app never does that.
-
-### demo.py
-
-`demo.py [DEVICE] [OUTPUT_PATH]` speaks one fixed sentence without cloning and writes `demo.wav` (or the path you give) in the current folder. It prints the device, the generation time and the length of the audio. It loads the model through voxcpm directly, not through `voxcpm_patch.py`, so on Apple Silicon it runs in float32. That is the larger of the two precisions (see [Memory and speed](#memory-and-speed)). Quit the Mac app before you run it.
 
 ## Models and where they are stored
 
@@ -438,6 +461,15 @@ What is kept out of git (`.gitignore`): `voices/*`, `outputs/`, every `*.wav`, `
 | `install.sh` says `swiftc and the macOS SDK are needed` | Run `xcode-select --install`, or use `--browser` or `--no-app`. |
 | `install.sh` or `make-app.sh --install` says Voice Clone is running | Quit the app (Cmd-Q) and run the command again. |
 
+## Known limitations
+
+- The web interface runs the model on the GPU (MPS) only. The CPU is available only through `clone.py --device cpu`, and its speed was not measured.
+- Memory and speed were measured on one 16 GB Mac. Other sizes were not measured (see [Memory and speed](#memory-and-speed)).
+- How cfg and steps change the sound was not measured. The app sets no random seed, so results differ from run to run (see [What to change for which effect](#what-to-change-for-which-effect)).
+- `HF_HUB_OFFLINE=1` was not tested, and whether ModelScope contacts its hub after the denoiser first loads was not checked (see [Privacy](#privacy)).
+- The window of the desktop app (menu, microphone prompt, downloads, uploads) is not covered by a test (see [Tests](#tests)).
+- The Mac app is signed ad hoc and not notarized. Build it on each Mac (see [The Mac app](#the-mac-app)).
+
 ## Tests
 
 None of these use port 7860. Only `tests/test_fp16_audio.py` loads the whole model.
@@ -457,6 +489,7 @@ The two macapp tests refuse port 7860. `test-desktop.sh` also refuses 7861, whic
 
 ```
 README.md                      this file
+LICENSE                        the MIT license of the code in this repository
 install.sh                     one-command installer
 make-app.sh                    builds and installs "Voice Clone.app" (desktop or browser mode)
 start.command                  double-click start of the server in Terminal
@@ -469,7 +502,8 @@ demo.py                        speech without cloning, as an install check
 voice-script.md                the text to read when recording a voice
 requirements.txt               pinned Python packages
 .gitignore                     keeps voices, audio, .venv and builds out of git
-docs/screenshots/              the images in this README
+docs/icon.png                  the app icon at the top of this file (256 pixels, from macapp/make_icon.py)
+docs/screenshots/              the screenshots in this README
 macapp/voiceclone.sh           start, check and stop of the server, used by both app modes
 macapp/launcher.applescript    the browser app
 macapp/desktop/main.swift      entry point of the desktop app, and the --self-test switch
@@ -489,4 +523,6 @@ These folders are created on use and are not in git: `.venv/` (the Python enviro
 
 ## License
 
-This repository has no LICENSE file. VoxCPM2 is released under the Apache-2.0 license (see its model card on Hugging Face).
+MIT. See [LICENSE](LICENSE). Copyright (c) 2026 Sascha Kubisch.
+
+The MIT license covers the code in this repository only. The VoxCPM2 model is not part of it. `install.sh` or the first Generate downloads it, and it has its own license, Apache-2.0 (see its [model card](https://huggingface.co/openbmb/VoxCPM2)). The ZipEnhancer denoiser and the Python packages the installer fetches have their own licenses too.
