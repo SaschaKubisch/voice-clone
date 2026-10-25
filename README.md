@@ -325,15 +325,17 @@ The icon, shown at the top of this file, is a sound wave on a dark blue rounded 
 ### Install and switch
 
 ```
-bash make-app.sh --install             # desktop app: builds macapp/build/Voice Clone.app, copies it to /Applications, registers it with Launch Services
+bash make-app.sh --install             # desktop app: builds macapp/build/Voice Clone.app, copies it to /Applications, registers it with Launch Services, deletes the build copy
 bash make-app.sh --install --browser   # browser app, the same steps
-bash make-app.sh                       # builds the desktop app only (add --browser for the browser app)
+bash make-app.sh                       # builds the desktop app only and keeps it in macapp/build (add --browser for the browser app)
 bash make-app.sh --repo <folder>       # the app starts the server from <folder> (default: the folder of the script)
 ```
 
 To switch from one mode to the other, quit the app and run the install command of the other mode. `--install` refuses while either mode is running.
 
-Every run of `make-app.sh` unregisters the build in `macapp/build` from Launch Services (`lsregister -u`), so Launchpad and Spotlight list one Voice Clone, the installed one. If something opens the build copy later, Launch Services can register it again. The next `make-app.sh` run removes it.
+Launch Services, the part of macOS behind Launchpad, Spotlight and "Open With", registers every new `.app` folder by itself, 10 to 50 seconds after it appears. It did this for the build copy in `macapp/build` too, and the build copy and the installed copy have the same bundle id, so they showed up as two "Voice Clone". Naming the folder `build.noindex` did not prevent it. So `make-app.sh --install` deletes the build copy after it has installed and registered `/Applications/Voice Clone.app`, then unregisters the deleted path (`lsregister -u`). Afterwards Launchpad and Spotlight list one Voice Clone.
+
+`bash make-app.sh` without `--install` keeps the build in `macapp/build`, because `macapp/test-desktop.sh` needs it. Launch Services can list that build copy as a second Voice Clone while it exists. The next `bash make-app.sh --install` removes it.
 
 Both modes are signed ad hoc, which means with no certificate. This is enough to run on the Mac that built them. They are not notarized, and macOS would block them if they were downloaded from elsewhere. Build the app on each Mac. There is no hardened runtime and no sandbox.
 
@@ -445,7 +447,7 @@ What is kept out of git (`.gitignore`): `voices/*`, `outputs/`, every `*.wav`, `
 | The Mac app does not start, or says "Voice Clone did not start" | Read the log file: `tail -n 40 ~/Library/Logs/VoiceClone/app.log`. In the desktop app, Cmd-R tries again. The messages "The server did not answer within 90 seconds. It was stopped." and "The server stopped before it was ready." mean the server did not come up. The log says why. |
 | "The Python environment is missing in ..." | `.venv` is missing. Run `bash install.sh`. Or run the two commands under [Manual setup](#manual-setup). The dialog has a Copy Commands button. |
 | "The Voice Clone folder was not found" | The folder moved or was deleted. The app points to the old place. Run `bash make-app.sh --install` in the folder where it is now. Quit the app first. |
-| Two Voice Clone entries in Launchpad | Launch Services registered the build copy in `macapp/build`. Run `bash make-app.sh --install` again. It unregisters the build copy. |
+| Two Voice Clone entries in Launchpad | Launch Services registered the build copy in `macapp/build`, which `bash make-app.sh` (without `--install`) leaves there. Quit the app and run `bash make-app.sh --install` again. It deletes the build copy and unregisters it. |
 | The microphone does not work | In System Settings, Privacy & Security, Microphone, switch Voice Clone on. In a browser, allow the microphone for 127.0.0.1. Or upload a recording. See [Microphone permission](#microphone-permission). |
 | `record.sh` prints "Recording ended early" and "error: nothing was recorded" | The device name in the script does not exist on your Mac (see [record.sh](#recordsh)), or macOS has not allowed the microphone for the Terminal app. |
 | "No voice named ... Record one in the first tab, or press Refresh." | Press Refresh voices. If the list stays empty, `voices/` has no `.wav` file. |
@@ -481,7 +483,7 @@ None of these use port 7860. Only `tests/test_fp16_audio.py` loads the whole mod
 | `tests/test_chunked_encode.py` | That the 20-second pieces of the reference encoding give the same result as one pass. It loads only the audio VAE from the cached VoxCPM2 files, and makes a 45 s clip with `say` and ffmpeg. | `.venv/bin/python tests/test_chunked_encode.py` |
 | `tests/test_fp16_audio.py` | That float16 output is speech, and the load time, memory and speed. It loads VoxCPM2 (see [Memory and speed](#memory-and-speed)), so quit the Mac app first. Options: `--dtype`, `--seed`, `--repeat`, `--workdir`, `--metrics-json`, `--ref`, `--ref-mode`, `--no-asr`. The first run downloads SenseVoiceSmall. | `.venv/bin/python tests/test_fp16_audio.py` |
 | `macapp/test-launcher.sh` | The launcher helper `macapp/voiceclone.sh` against a stand-in server: start, already running, quit stops only its own server, SIGKILL after 10 s, missing `.venv` and folder. | `VOICECLONE_PORT=7862 bash macapp/test-launcher.sh` |
-| `macapp/test-desktop.sh` | The server rules of the desktop app, with no window: reuse of a running server, start of its own, stop of only its own, timeout, a server that exits, a missing folder or `.venv`, that WebKit treats http://127.0.0.1 as a secure context, which the microphone needs, and that the app ends by itself, with the server it started stopped, when it gets SIGTERM, SIGINT or SIGHUP (also several in a row). Build the desktop app first (`bash make-app.sh`). The window itself (menu, microphone prompt, downloads, uploads) is not covered by a test. | `VOICECLONE_PORT=7862 bash macapp/test-desktop.sh` |
+| `macapp/test-desktop.sh` | The server rules of the desktop app, with no window: reuse of a running server, start of its own, stop of only its own, timeout, a server that exits, a missing folder or `.venv`, that WebKit treats http://127.0.0.1 as a secure context, which the microphone needs, and that the app ends by itself, with the server it started stopped, when it gets SIGTERM, SIGINT or SIGHUP (also several in a row). Build the desktop app first with `bash make-app.sh` (build only: `--install` deletes the build copy). The window itself (menu, microphone prompt, downloads, uploads) is not covered by a test. | `VOICECLONE_PORT=7862 bash macapp/test-desktop.sh` |
 
 The two macapp tests refuse port 7860. `test-desktop.sh` also refuses 7861, which `tests/test_progress_ui.py` uses.
 

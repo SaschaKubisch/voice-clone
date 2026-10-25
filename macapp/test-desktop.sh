@@ -1,6 +1,7 @@
 #!/bin/bash
 # Server-logic test of the desktop app binary, with no window. It runs "VoiceClone --self-test <phase>"
-# from macapp/build/Voice Clone.app (build it first: bash make-app.sh) against stand-in servers. It never
+# from macapp/build/Voice Clone.app against stand-in servers. Build it first with "bash make-app.sh" (build only):
+# "bash make-app.sh --install" deletes macapp/build/Voice Clone.app after it installs the app. It never
 # touches port 7860: it needs VOICECLONE_PORT set to another port and refuses 7860.
 #   VOICECLONE_PORT=7862 bash macapp/test-desktop.sh
 # Phases: reuse a running server, start its own, stop only its own, time out, notice a server that exits,
@@ -21,7 +22,7 @@ OTHER=$((PORT + 1))
 HERE="$(cd "$(dirname "$0")" && pwd -P)"
 BIN="$HERE/build/Voice Clone.app/Contents/MacOS/VoiceClone"
 REAL_PYTHON="$HERE/../.venv/bin/python"
-[ -x "$BIN" ] || { echo "No desktop build at $BIN. Run: bash make-app.sh" >&2; exit 2; }
+[ -x "$BIN" ] || { echo "No desktop build at $BIN. Run: bash make-app.sh (build only). Installing with --install deletes the build copy." >&2; exit 2; }
 for p in "$PORT" "$OTHER"; do
   if /usr/bin/curl -s --max-time 2 -o /dev/null "http://127.0.0.1:$p/"; then
     echo "Port $p answers already. Stop that server or choose another VOICECLONE_PORT." >&2; exit 2

@@ -1,6 +1,6 @@
 #!/bin/bash
-# Builds "Voice Clone.app" into macapp/build/. With --install, copies it to /Applications and
-# registers it with Launch Services, so Launchpad lists it. Safe to run again.
+# Builds "Voice Clone.app" into macapp/build/. With --install, copies it to /Applications, registers
+# that copy with Launch Services, so Launchpad lists it, and deletes the build copy. Safe to run again.
 #
 #   bash make-app.sh                       build the desktop app (a window of its own, Swift and WebKit)
 #   bash make-app.sh --browser             build the browser launcher (opens the page in the default browser)
@@ -155,15 +155,20 @@ codesign --force --deep -s - "$APP"
 codesign --verify --deep --strict "$APP"
 echo "Built ($MODE): $APP (starts the server from $REPO)"
 
-# 6. Launch Services. It can register the build copy in macapp/build by itself. Then Launchpad,
-#    Spotlight and "Open With" list two "Voice Clone". So the build copy is unregistered (lsregister -u)
-#    on every run, before the installed copy is registered. Launch Services may register it again later
-#    if something opens it; installing again removes that entry.
-"$LSREGISTER" -u "$APP" 2>/dev/null || true
+# 6. Launch Services. It registers a new "*.app" folder by itself, 10 to 50 s after the folder appears
+#    or changes (measured in macapp/build and in macapp/build.noindex: the ".noindex" name does not
+#    prevent it; a folder name that does not end in ".app" was not registered). Two registered copies with
+#    the same bundle id (local.voiceclone) show up as two "Voice Clone" in Launchpad, Spotlight and
+#    "Open With". So with --install the build copy is deleted once the installed copy is registered, and
+#    lsregister -u then drops any registration of the deleted path (a deleted bundle stays listed until then).
+#    Without --install the build stays in macapp/build, and Launch Services may list it as a second
+#    "Voice Clone" if one is installed. The next run with --install removes it.
 if [ "$INSTALL" = 1 ]; then
   rm -rf "$DEST"
   ditto "$APP" "$DEST"
   codesign --verify --deep --strict "$DEST"
   "$LSREGISTER" -f "$DEST"
-  echo "Installed ($MODE): $DEST"
+  rm -rf "$APP"
+  "$LSREGISTER" -u "$APP" 2>/dev/null || true
+  echo "Installed ($MODE): $DEST (the build copy in $BUILD is deleted)"
 fi
