@@ -11,7 +11,7 @@
 <p align="center">
   <img src="https://img.shields.io/badge/platform-macOS%2012%2B%20Apple%20Silicon-lightgrey" alt="Platform: macOS 12 or later, Apple Silicon">
   <img src="https://img.shields.io/badge/Python-3.11-blue" alt="Python 3.11">
-  <img src="https://img.shields.io/badge/Swift-5.8-orange" alt="Swift 5.8, for the desktop app">
+  <img src="https://img.shields.io/badge/Swift-5.8%2B-orange" alt="Swift 5.8 or later, for the desktop app">
   <a href="https://huggingface.co/openbmb/VoxCPM2"><img src="https://img.shields.io/badge/model-VoxCPM2%20(Apache--2.0)-green" alt="Model: VoxCPM2, Apache-2.0"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue" alt="License: MIT"></a>
 </p>
@@ -54,7 +54,7 @@ The screenshots come from a demo copy of the app with a stand-in model that spea
 - Disk space: VoxCPM2 is 4.6 GiB, the denoiser 18.2 MiB, and the Python environment `.venv` 1.6 GiB (measured with `du` on the author's Mac). The installer stops if the free space is smaller than the model download plus 1 GiB.
 - Network access for the install: Homebrew, PyPI, Hugging Face and ModelScope.
 - ffmpeg and uv. The installer installs them with Homebrew if they are missing. It does not install Homebrew itself.
-- The Command Line Tools (`xcode-select --install`), only for the desktop app. They provide `swiftc` and the macOS SDK. The desktop app is built with Swift 5.8.1 on the author's Mac.
+- The Command Line Tools (`xcode-select --install`) or Xcode, only for the desktop app. Either provides `swiftc` and the macOS SDK; `make-app.sh` uses the one `xcode-select -p` points to. The desktop app compiles with Swift 5.8.1 (Command Line Tools, macOS SDK 13.3) and Swift 6.4 (Xcode 27.1, macOS SDK 27.0).
 - Python 3.11. The installer asks uv to create the environment, so you do not install Python yourself.
 - A microphone, or audio files to upload.
 
@@ -317,7 +317,7 @@ With `--text` and `--text-file`, an existing `output_NNN.wav` or `--out` file is
 | | Desktop app (default) | Browser app |
 | --- | --- | --- |
 | What it is | A window of its own, with its own Dock icon and menu. A small Swift app (`macapp/desktop/`) that shows the web interface in a WebKit view. | A launcher that opens the web interface in your default browser. An AppleScript applet built with `osacompile`. |
-| Needs | The Command Line Tools for `swiftc`, and macOS 12 or newer. No Xcode project, no new dependency. | Nothing extra. |
+| Needs | The Command Line Tools or Xcode for `swiftc`, and macOS 12 or newer. No Xcode project, no new dependency. | Nothing extra. |
 | Install | `bash install.sh` or `bash make-app.sh --install` | `bash install.sh --browser` or `bash make-app.sh --install --browser` |
 
 The icon, shown at the top of this file, is a sound wave on a dark blue rounded square. `macapp/make_icon.py` draws it, and `docs/icon.png` is its render at 256 pixels.
@@ -458,7 +458,7 @@ What is kept out of git (`.gitignore`): `voices/*`, `outputs/`, every `*.wav`, `
 | The model download was interrupted | Run `bash install.sh` again. Finished files are kept. |
 | `install.sh: step 1 ... Apple Silicon (arm64) is needed` | The terminal runs under Rosetta. Open a terminal that does not. |
 | `install.sh` stops at step 2 and names Homebrew | Install Homebrew from https://brew.sh, open a new terminal, and run the printed commands. |
-| `install.sh` says `swiftc and the macOS SDK are needed` | Run `xcode-select --install`, or use `--browser` or `--no-app`. |
+| `install.sh` says `swiftc and the macOS SDK are needed` | Run `xcode-select --install` (or install Xcode), or use `--browser` or `--no-app`. |
 | `install.sh` or `make-app.sh --install` says Voice Clone is running | Quit the app (Cmd-Q) and run the command again. |
 
 ## Known limitations
