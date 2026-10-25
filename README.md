@@ -4,14 +4,41 @@ A local web interface and command-line scripts for cloning a voice and generatin
 
 ## Setup
 
-Needs macOS on Apple Silicon, [uv](https://docs.astral.sh/uv/) and ffmpeg (`brew install ffmpeg`).
+```
+git clone https://github.com/SaschaKubisch/voice-clone.git
+cd voice-clone
+bash install.sh
+```
+
+This installs everything. Afterwards Generate needs no further download. Run it again at any time: it skips what is already done. Needs macOS on Apple Silicon.
+
+Options:
+
+- `--browser`: install the browser app instead of the desktop app (see Mac app).
+- `--no-app`: skip the Mac app. Start the interface with `start.command` or `.venv/bin/python app.py`.
+- `--no-models`: skip the model downloads. The first Generate downloads VoxCPM2 instead.
+- `-h`, `--help`: print the usage.
+
+What it installs, in this order:
+
+1. **uv and ffmpeg**, with Homebrew, if one is missing. Without Homebrew it stops and prints the link (https://brew.sh) and the commands to run. It does not install Homebrew.
+2. **Python environment**: `.venv` in this folder, Python 3.11, with the packages of `requirements.txt`.
+3. **VoxCPM2**: Hugging Face id `openbmb/VoxCPM2`, about 5 GB (4.6 GiB), into `~/.cache/huggingface/hub`.
+4. **Denoiser** for the option "Denoise the reference recording": ModelScope id `iic/speech_zipenhancer_ans_multiloss_16k_base`, about 18 MB, into `~/.cache/modelscope/models`.
+5. **Mac app**: `/Applications/Voice Clone.app`, built by `make-app.sh --install`. The desktop app needs the Command Line Tools (`xcode-select --install`).
+
+The models are downloaded, not loaded into memory. The cache folders above change if you set `HF_HOME` or `MODELSCOPE_CACHE`. SenseVoiceSmall is not installed. Only `tests/test_fp16_audio.py` uses it, and that test downloads it (about 0.9 GB) on its first run.
+
+### Manual setup
+
+Needs [uv](https://docs.astral.sh/uv/) and ffmpeg (`brew install ffmpeg`).
 
 ```
 uv venv --python 3.11 .venv
 uv pip install --python .venv/bin/python -r requirements.txt
 ```
 
-`requirements.txt` pins the versions the scripts were tested with (voxcpm 2.0.3, torch 2.14.1, gradio 6.30.0). The model weights, about 5 GB, download into `~/.cache/huggingface` on first use.
+`requirements.txt` pins the versions the scripts were tested with (voxcpm 2.0.3, torch 2.14.1, gradio 6.30.0). If the models are not downloaded, the first Generate downloads the VoxCPM2 weights into `~/.cache/huggingface`.
 
 ## Web interface
 
