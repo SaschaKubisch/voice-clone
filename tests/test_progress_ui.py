@@ -136,10 +136,7 @@ def start_stub_ui(voices, outputs):
     voxcpm_patch.load_model = stub_load_model
     install_probes()
     demo = app.build_ui().queue()
-    demo.launch(
-        server_name="127.0.0.1", server_port=PORT, prevent_thread_lock=True, inbrowser=False,
-        share=False, show_error=True, quiet=True, ssr_mode=False,
-    )
+    demo.launch(**app.launch_settings(PORT), prevent_thread_lock=True, inbrowser=False, quiet=True)
     return demo
 
 

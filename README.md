@@ -254,6 +254,7 @@ The Files tab lists the `.wav` files in the output folder of the Speak tab, newe
 - The list refreshes when you open the tab. **Refresh list** reads the folder again.
 - Choosing a file loads it into the **Player** and shows its path and length in the status line.
 - **Reveal in Finder** selects the chosen file in a Finder window.
+- The player and Reveal in Finder accept only a `.wav` file inside the output folder or `voices/`. A link that points to a file elsewhere is refused. The API of the interface follows the same rule.
 - If the output folder does not exist yet, the status line says so.
 
 ### Command line
@@ -425,6 +426,8 @@ Voice recordings are sensitive. A recording of a voice and its transcript are en
 What stays on this Mac:
 
 - The server listens on 127.0.0.1 only, and Gradio's public share link is off (`share=False`). Gradio's analytics are off.
+- The server answers only requests whose Host header is `127.0.0.1:7860` or `localhost:7860`, and refuses the rest with status 403. Gradio checks the origin of a request only when the Host is a localhost name, so without this a web page on a name that points at 127.0.0.1 (DNS rebinding) could use the interface of a running app. `tests/test_local_security.py` checks it.
+- The interface has no password. Any program on this Mac that can send requests to 127.0.0.1:7860 can use it. The Host check stops web pages, not programs that run on this Mac.
 - Recordings, transcripts and generated audio are files on this Mac: `voices/`, `outputs/`, or the folder you choose. No code in the project sends audio or text to another computer.
 - When the page was loaded in a headless browser against the demo copy, the only address it contacted was 127.0.0.1.
 
@@ -443,6 +446,7 @@ What is kept out of git (`.gitignore`): `voices/*`, `outputs/`, every `*.wav`, `
 
 | Problem | Cause and fix |
 | --- | --- |
+| The page shows `Invalid Host header.` | The address in the browser is not `127.0.0.1:7860` or `localhost:7860`, for example `0.0.0.0`, the Mac's network address or a tunnel. The server refuses other names on purpose (see [Privacy](#privacy)). Open http://127.0.0.1:7860. |
 | `Cannot find empty port in range: 7860-7860` | Another program uses port 7860, often an earlier Voice Clone server. The port is fixed in `app.py`. Find the program with `lsof -nP -iTCP:7860 -sTCP:LISTEN`. If it is a Voice Clone server, quit the app, or stop it with `pkill -f '.venv/bin/python app.py'`. If another program answers on 7860, the Mac app opens that program's page. |
 | The Mac app does not start, or says "Voice Clone did not start" | Read the log file: `tail -n 40 ~/Library/Logs/VoiceClone/app.log`. In the desktop app, Cmd-R tries again. The messages "The server did not answer within 90 seconds. It was stopped." and "The server stopped before it was ready." mean the server did not come up. The log says why. |
 | "The Python environment is missing in ..." | `.venv` is missing. Run `bash install.sh`. Or run the two commands under [Manual setup](#manual-setup). The dialog has a Copy Commands button. |
@@ -480,6 +484,7 @@ None of these use port 7860. Only `tests/test_fp16_audio.py` loads the whole mod
 | --- | --- | --- |
 | `tests/test_progress_hook.py` | The step counting in `voxcpm_patch.py`, with a stand-in model class. It also reads the installed voxcpm package as text, to see that its generation loop is still the one the patch expects. No model is loaded. | `.venv/bin/python tests/test_progress_hook.py` |
 | `tests/test_progress_ui.py` | The progress bar, with a stand-in model, on port 7861. With `--serve` it serves the stand-in interface until Ctrl-C. | `.venv/bin/python tests/test_progress_ui.py` |
+| `tests/test_local_security.py` | The local-only protections, with a stand-in model, on port 7864: a request with a foreign Host header is refused and a normal one works; the Files tab plays and reveals only a `.wav` inside the output folder or `voices/` (not a file elsewhere, a non-wav, a symlink that points out, a path with `..`); `open -R --`; a recording or voice name taken from a path is refused. No model is loaded. | `.venv/bin/python tests/test_local_security.py` |
 | `tests/test_chunked_encode.py` | That the 20-second pieces of the reference encoding give the same result as one pass. It loads only the audio VAE from the cached VoxCPM2 files, and makes a 45 s clip with `say` and ffmpeg. | `.venv/bin/python tests/test_chunked_encode.py` |
 | `tests/test_fp16_audio.py` | That float16 output is speech, and the load time, memory and speed. It loads VoxCPM2 (see [Memory and speed](#memory-and-speed)), so quit the Mac app first. Options: `--dtype`, `--seed`, `--repeat`, `--workdir`, `--metrics-json`, `--ref`, `--ref-mode`, `--no-asr`. The first run downloads SenseVoiceSmall. | `.venv/bin/python tests/test_fp16_audio.py` |
 | `macapp/test-launcher.sh` | The launcher helper `macapp/voiceclone.sh` against a stand-in server: start, already running, quit stops only its own server, SIGKILL after 10 s, missing `.venv` and folder. | `VOICECLONE_PORT=7862 bash macapp/test-launcher.sh` |
@@ -518,6 +523,7 @@ macapp/test-launcher.sh        test of voiceclone.sh
 macapp/test-desktop.sh         test of the desktop app's server rules
 tests/test_progress_hook.py    test of the step counting
 tests/test_progress_ui.py      test of the progress bar
+tests/test_local_security.py   test of the Host check and of the paths the Files tab accepts
 tests/test_chunked_encode.py   test of the chunked reference encoding
 tests/test_fp16_audio.py       test of float16 speech, with measurements
 ```

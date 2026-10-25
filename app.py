@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Local web interface for VoxCPM2 voice cloning and text-to-speech.
 
-Start:  .venv/bin/python app.py     (serves http://127.0.0.1:7860 only)
+Start:  .venv/bin/python app.py     (serves http://127.0.0.1:7860 only; see LocalHostOnly and allowed_wav)
 
 Tabs: Record voice (read voice-script.md in one take and save a voice to voices/), Speak
 (generate audio), Files (list and reveal generated audio). The model loads on the first Generate
@@ -22,6 +22,8 @@ from datetime import datetime
 from pathlib import Path
 
 import gradio as gr
+from starlette.middleware import Middleware
+from starlette.responses import PlainTextResponse
 
 import voxcpm_patch
 from progress_ui import (
@@ -29,6 +31,9 @@ from progress_ui import (
     spoken_characters, steps_per_character,
 )
 from voxcpm_patch import DEFAULT_DTYPE, DTYPES  # imports torch only, not the model
+
+SERVER_NAME = "127.0.0.1"
+SERVER_PORT = 7860
 
 APP_DIR = Path(__file__).resolve().parent
 VOICES_DIR = APP_DIR / "voices"
@@ -395,17 +400,40 @@ def list_files(out_dir):
     return gr.update(choices=choices, value=value), f"{len(files)} .wav file(s) in {folder}, newest first."
 
 
-def show_file(path):
-    if not path or not Path(path).is_file():
+NOT_ALLOWED = "Only an existing .wav file inside the output folder or the voices folder can be used here."
+
+
+def allowed_wav(path, out_dir):
+    """The resolved path of a .wav file inside the output folder or the voices folder, or None.
+
+    The path comes from the page, and Gradio exposes the handlers on its local API, so it is not
+    trusted: symlinks are followed first, and a link inside a folder that points elsewhere is refused.
+    """
+    try:
+        resolved = Path(path).resolve(strict=True)
+        roots = [resolve_dir(out_dir).resolve(), VOICES_DIR.resolve()]
+    except (OSError, RuntimeError, ValueError):
+        return None
+    if resolved.suffix.lower() != ".wav" or not resolved.is_file():
+        return None
+    return resolved if any(resolved.is_relative_to(root) for root in roots) else None
+
+
+def show_file(path, out_dir=""):
+    if not path:
         return None, ""
-    return playable(path), f"{path}  ({audio_seconds(path):.1f} s)"
+    resolved = allowed_wav(path, out_dir)  # before anything is copied
+    if resolved is None:
+        return None, NOT_ALLOWED
+    return playable(resolved), f"{path}  ({audio_seconds(resolved):.1f} s)"
 
 
-def reveal_file(path):
-    if not path or not path.lower().endswith(".wav") or not Path(path).is_file():
-        raise gr.Error("Select an existing .wav file first.")
-    subprocess.run(["open", "-R", path], check=False)
-    return f"Revealed in Finder: {path}"
+def reveal_file(path, out_dir=""):
+    resolved = allowed_wav(path, out_dir) if path else None
+    if resolved is None:
+        raise gr.Error(NOT_ALLOWED if path else "Select an existing .wav file first.")
+    subprocess.run(["open", "-R", "--", str(resolved)], check=False)  # "--": a name is never an option
+    return f"Revealed in Finder: {resolved}"
 
 
 # ---------------------------------------------------------------- layout
@@ -514,15 +542,44 @@ def build_ui():
         )
         files_refresh_btn.click(list_files, [out_dir], [files_dd, files_status], api_name="list_files")
         files_tab.select(list_files, [out_dir], [files_dd, files_status], api_visibility="private")
-        files_dd.change(show_file, [files_dd], [file_audio, files_status], api_name="show_file")
-        reveal_btn.click(reveal_file, [files_dd], [files_status], api_name="reveal_file")
+        files_dd.change(show_file, [files_dd, out_dir], [file_audio, files_status], api_name="show_file")
+        reveal_btn.click(reveal_file, [files_dd, out_dir], [files_status], api_name="reveal_file")
 
     return demo
 
 
+class LocalHostOnly:
+    """Answers 403 to any request whose Host header is not 127.0.0.1:<port> or localhost:<port>.
+
+    Gradio compares the Origin of a request with its Host only when the Host is a localhost name. A web
+    page on a name that points at 127.0.0.1 (DNS rebinding) sends its own name as Host, so Gradio lets
+    it use the API. This check runs before any route.
+    """
+
+    def __init__(self, app, port):
+        self.app = app
+        self.allowed = {f"127.0.0.1:{port}", f"localhost:{port}"}
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] in ("http", "websocket"):
+            hosts = [value.decode("latin-1").strip().lower() for name, value in scope["headers"] if name == b"host"]
+            if len(hosts) != 1 or hosts[0] not in self.allowed:
+                if scope["type"] == "websocket":
+                    await send({"type": "websocket.close", "code": 1008})
+                else:
+                    await PlainTextResponse("Invalid Host header.", status_code=403)(scope, receive, send)
+                return
+        await self.app(scope, receive, send)
+
+
+def launch_settings(port=SERVER_PORT):
+    """The keyword arguments of demo.launch. Tests launch with them too, on another port."""
+    return dict(
+        server_name=SERVER_NAME, server_port=port, share=False, show_error=True, ssr_mode=False,
+        app_kwargs={"middleware": [Middleware(LocalHostOnly, port=port)]},
+    )
+
+
 if __name__ == "__main__":
     os.chdir(APP_DIR)
-    build_ui().queue().launch(
-        server_name="127.0.0.1", server_port=7860, inbrowser=True, share=False,
-        show_error=True, ssr_mode=False,
-    )
+    build_ui().queue().launch(inbrowser=True, **launch_settings())
