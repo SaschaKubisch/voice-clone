@@ -5,7 +5,9 @@
 #   VOICECLONE_PORT=7862 bash macapp/test-desktop.sh
 # Phases: reuse a running server, start its own, stop only its own, time out, notice a server that exits,
 # missing repo folder, missing .venv, and whether WebKit treats http://127.0.0.1 as a secure context (needed
-# by the microphone). The window code (menus, microphone prompt, downloads, uploads) is not tested here.
+# by the microphone), and the quit path: the app gets SIGTERM, SIGINT and SIGHUP (also several in a row, while
+# the server is slow to stop) and must end by itself with the server it started stopped. The window code (menus,
+# microphone prompt, downloads, uploads) is not tested here.
 set -u
 
 PORT="${VOICECLONE_PORT:-}"
@@ -67,6 +69,17 @@ class H(http.server.BaseHTTPRequestHandler):
     def log_message(self, *a):
         pass
 http.server.HTTPServer(("127.0.0.1", int(os.environ["VOICECLONE_PORT"])), H).serve_forever()'
+make_repo slowstop 'import http.server, os, signal, sys, time
+class H(http.server.BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200); self.end_headers(); self.wfile.write(b"ok")
+    def log_message(self, *a):
+        pass
+def slow_stop(*a):
+    time.sleep(1.5)
+    sys.exit(0)
+signal.signal(signal.SIGTERM, slow_stop)
+http.server.HTTPServer(("127.0.0.1", int(os.environ["VOICECLONE_PORT"])), H).serve_forever()'
 make_repo silent 'import time
 time.sleep(3600)'
 make_repo exits 'raise SystemExit(1)'
@@ -110,7 +123,36 @@ selftest died "$T/exits"; RC=$?;      expect "died: self-test exits 0 (got $RC)"
 selftest fail10 "$T/missing"; RC=$?;  expect "fail10: self-test exits 0 (got $RC)" test "$RC" = 0
 selftest fail11 "$T/novenv"; RC=$?;   expect "fail11: self-test exits 0 (got $RC)" test "$RC" = 0
 
-# 5. Nothing left behind.
+# 5. The quit path. The self-test starts a server, runs the app's quit path on a real NSApplication run loop,
+#    sends signals to its own process and ends through applicationWillTerminate. It has its own watchdog; the
+#    loop below is a backstop (30 s) in case the process cannot even report. The server it started must be gone.
+signal_test() {  # phase, repo folder
+  local phase="$1" out="$T/$1.out" pid spid rc i=0
+  VOICECLONE_REPO="$2" VOICECLONE_LOG="$T/app.log" "$BIN" --self-test "$phase" >"$out" 2>&1 &
+  pid=$!
+  PIDS="$PIDS $pid"
+  while kill -0 "$pid" 2>/dev/null && [ $i -lt 150 ]; do sleep 0.2; i=$((i + 1)); done
+  if kill -0 "$pid" 2>/dev/null; then kill -KILL "$pid" 2>/dev/null; fail "$phase: the self-test did not end within 30 s"; fi
+  wait "$pid" 2>/dev/null; rc=$?
+  cat "$out"
+  expect "$phase: self-test exits 0 (got $rc)" test "$rc" = 0
+  spid="$(sed -n 's/^server pid //p' "$out")"
+  if [ -n "$spid" ]; then
+    expect "$phase: the server it started is gone" bash -c "! kill -0 $spid 2>/dev/null"
+    # leave nothing behind, whatever happened (only a process whose command line is one of the test repos)
+    if ps -o command= -p "$spid" 2>/dev/null | grep -q "^$T/"; then kill -KILL "$spid" 2>/dev/null; fi
+  else
+    fail "$phase: the self-test did not start a server"
+  fi
+  i=0; while answers "$PORT" && [ $i -lt 25 ]; do sleep 0.2; i=$((i + 1)); done
+  expect "$phase: port $PORT is free again" bash -c "! /usr/bin/curl -s --max-time 2 -o /dev/null http://127.0.0.1:$PORT/"
+}
+signal_test sigterm "$T/serving"
+signal_test sigint "$T/serving"
+signal_test sighup "$T/serving"
+signal_test sigterm-twice "$T/slowstop"
+
+# 6. Nothing left behind.
 expect "no server process left" bash -c "! pgrep -f '$T/[a-z]*/.venv/bin/python app.py' >/dev/null"
 expect "port $PORT is free at the end" bash -c "! /usr/bin/curl -s --max-time 2 -o /dev/null http://127.0.0.1:$PORT/"
 

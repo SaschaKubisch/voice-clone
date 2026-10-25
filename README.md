@@ -481,7 +481,7 @@ None of these use port 7860. Only `tests/test_fp16_audio.py` loads the whole mod
 | `tests/test_chunked_encode.py` | That the 20-second pieces of the reference encoding give the same result as one pass. It loads only the audio VAE from the cached VoxCPM2 files, and makes a 45 s clip with `say` and ffmpeg. | `.venv/bin/python tests/test_chunked_encode.py` |
 | `tests/test_fp16_audio.py` | That float16 output is speech, and the load time, memory and speed. It loads VoxCPM2 (see [Memory and speed](#memory-and-speed)), so quit the Mac app first. Options: `--dtype`, `--seed`, `--repeat`, `--workdir`, `--metrics-json`, `--ref`, `--ref-mode`, `--no-asr`. The first run downloads SenseVoiceSmall. | `.venv/bin/python tests/test_fp16_audio.py` |
 | `macapp/test-launcher.sh` | The launcher helper `macapp/voiceclone.sh` against a stand-in server: start, already running, quit stops only its own server, SIGKILL after 10 s, missing `.venv` and folder. | `VOICECLONE_PORT=7862 bash macapp/test-launcher.sh` |
-| `macapp/test-desktop.sh` | The server rules of the desktop app, with no window: reuse of a running server, start of its own, stop of only its own, timeout, a server that exits, a missing folder or `.venv`, and that WebKit treats http://127.0.0.1 as a secure context, which the microphone needs. Build the desktop app first (`bash make-app.sh`). The window itself (menu, microphone prompt, downloads, uploads) is not covered by a test. | `VOICECLONE_PORT=7862 bash macapp/test-desktop.sh` |
+| `macapp/test-desktop.sh` | The server rules of the desktop app, with no window: reuse of a running server, start of its own, stop of only its own, timeout, a server that exits, a missing folder or `.venv`, that WebKit treats http://127.0.0.1 as a secure context, which the microphone needs, and that the app ends by itself, with the server it started stopped, when it gets SIGTERM, SIGINT or SIGHUP (also several in a row). Build the desktop app first (`bash make-app.sh`). The window itself (menu, microphone prompt, downloads, uploads) is not covered by a test. | `VOICECLONE_PORT=7862 bash macapp/test-desktop.sh` |
 
 The two macapp tests refuse port 7860. `test-desktop.sh` also refuses 7861, which `tests/test_progress_ui.py` uses.
 
@@ -509,6 +509,7 @@ macapp/launcher.applescript    the browser app
 macapp/desktop/main.swift      entry point of the desktop app, and the --self-test switch
 macapp/desktop/AppDelegate.swift   window, menu, microphone, downloads and uploads of the desktop app
 macapp/desktop/ServerController.swift   starts and stops the server through voiceclone.sh
+macapp/desktop/QuitPath.swift   how the desktop app ends: Cmd-Q, closing the window, logout and signals
 macapp/desktop/SelfTest.swift  the window-free tests behind test-desktop.sh
 macapp/make_icon.py            draws the app icon
 macapp/test-launcher.sh        test of voiceclone.sh

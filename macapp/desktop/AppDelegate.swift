@@ -17,8 +17,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     private var phase = Phase.starting
     private var pollTimer: Timer?
     private var polling = false
-    private var terminating = false
-    private var signalSources: [DispatchSourceSignal] = []
+    private lazy var quitPath = QuitPath(server: server) { [weak self] in
+        self?.pollTimer?.invalidate()
+        self?.window?.orderOut(nil)
+    }
     private var downloadTargets: [ObjectIdentifier: URL] = [:]
 
     // MARK: Launch and quit
@@ -26,7 +28,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     func applicationDidFinishLaunching(_ notification: Notification) {
         buildMenu()
         buildWindow()
-        installSignalHandlers()
+        quitPath.installSignalHandlers()
         NSApp.activate(ignoringOtherApps: true)
         startServer()
     }
@@ -39,25 +41,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     /// Cmd-Q, closing the window, SIGTERM and logout end up here. The window goes away first, then
     /// the server this app started is stopped (SIGTERM, SIGKILL after 10 s) and only then the app ends.
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
-        if terminating { return .terminateLater }
-        terminating = true
-        pollTimer?.invalidate()
-        window?.orderOut(nil)
-        server.queue.async {
-            self.server.shutdown()
-            DispatchQueue.main.async { NSApp.reply(toApplicationShouldTerminate: true) }
-        }
-        return .terminateLater
-    }
-
-    private func installSignalHandlers() {
-        for sig in [SIGTERM, SIGINT, SIGHUP] {
-            signal(sig, SIG_IGN)
-            let source = DispatchSource.makeSignalSource(signal: sig, queue: .main)
-            source.setEventHandler { NSApp.terminate(nil) }
-            source.resume()
-            signalSources.append(source)
-        }
+        return quitPath.shouldTerminate()
     }
 
     // MARK: Window

@@ -4,15 +4,17 @@ import WebKit
 
 /// `VoiceClone --self-test <phase>` tests the server rules of the app with no window.
 /// It needs VOICECLONE_PORT (not 7860) and VOICECLONE_REPO, and is run by macapp/test-desktop.sh.
-/// Phases: reuse, own, timeout, died, fail10, fail11, and secure-context (loads the page of a stand-in
-/// server in a WKWebView that has no window and checks that WebKit allows the microphone API there).
+/// Phases: reuse, own, timeout, died, fail10, fail11, secure-context (loads the page of a stand-in
+/// server in a WKWebView that has no window and checks that WebKit allows the microphone API there),
+/// and sigterm, sigint, sighup and sigterm-twice (start a server, run the quit path of the app on a real
+/// NSApplication run loop, send signals to this process, expect that it ends and stops the server).
 enum SelfTest {
     static func run(_ args: [String]) -> Int32 {
         let env = ProcessInfo.processInfo.environment
         guard let phase = args.first,
               let port = env["VOICECLONE_PORT"], Int(port) != nil, port != "7860",
               let repo = env["VOICECLONE_REPO"] else {
-            FileHandle.standardError.write(Data("usage: VOICECLONE_PORT=<not 7860> VOICECLONE_REPO=<folder> VoiceClone --self-test reuse|own|timeout|died|fail10|fail11|secure-context\n".utf8))
+            FileHandle.standardError.write(Data("usage: VOICECLONE_PORT=<not 7860> VOICECLONE_REPO=<folder> VoiceClone --self-test reuse|own|timeout|died|fail10|fail11|secure-context|sigterm|sigint|sighup|sigterm-twice\n".utf8))
             return 2
         }
         var fails: Int32 = 0
@@ -86,6 +88,17 @@ enum SelfTest {
             check(result.secure, "window.isSecureContext is true at \(s.url.absoluteString)")
             check(result.hasMediaDevices, "navigator.mediaDevices.getUserMedia exists")
 
+        case "sigterm":
+            return QuitProbe.run(phase: phase, signals: [(0.3, SIGTERM)])
+        case "sigint":
+            return QuitProbe.run(phase: phase, signals: [(0.3, SIGINT)])
+        case "sighup":
+            return QuitProbe.run(phase: phase, signals: [(0.3, SIGHUP)])
+        case "sigterm-twice":
+            // The server needs about 1.5 s to stop, so the later signals arrive while the quit is running.
+            // SIGINT follows SIGTERM at once, before the run loop can have started the quit.
+            return QuitProbe.run(phase: phase, signals: [(0.3, SIGTERM), (0.0, SIGINT), (0.4, SIGTERM), (0.4, SIGHUP)])
+
         default:
             FileHandle.standardError.write(Data("unknown phase \(phase)\n".utf8))
             return 2
@@ -137,4 +150,85 @@ private final class WebProbe: NSObject, WKNavigationDelegate {
 
     func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) { finished = true }
     func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) { finished = true }
+}
+
+/// The quit path of the app without a window, on a real NSApplication run loop. It starts the server
+/// (VOICECLONE_REPO/.venv/bin/python app.py on VOICECLONE_PORT), sends signals to its own process and
+/// expects that the app ends by itself with the server stopped. The quit path is the QuitPath class
+/// that AppDelegate uses. A signal handler that deadlocks shows up as the watchdog below: it fails the
+/// phase when the process is still running `exitLimit` seconds after the last signal.
+private final class QuitProbe: NSObject, NSApplicationDelegate {
+    static let exitLimit = 6.0
+
+    let phase: String
+    let signals: [(delay: Double, signal: Int32)]   // delay in seconds after the previous signal (the first: after the server answers)
+    let server = ServerController(startTimeout: 30)
+    var pid: Int32 = 0
+    var fails: Int32 = 0
+    var firstSignalAt: Date?
+    lazy var quitPath = QuitPath(server: server) {}
+
+    init(phase: String, signals: [(delay: Double, signal: Int32)]) {
+        self.phase = phase
+        self.signals = signals
+    }
+
+    func check(_ ok: Bool, _ what: String) {
+        print(ok ? "ok    \(phase): \(what)" : "FAIL  \(phase): \(what)")
+        if !ok { fails += 1 }
+    }
+
+    static func run(phase: String, signals: [(delay: Double, signal: Int32)]) -> Int32 {
+        setvbuf(stdout, nil, _IONBF, 0)   // the lines must survive a SIGKILL of this process
+        let probe = QuitProbe(phase: phase, signals: signals)
+        let server = probe.server
+        probe.check(!server.isUp(), "the port is free before begin")
+        guard case .started(let pid) = server.begin() else { probe.check(false, "begin() starts the server"); return probe.fails }
+        probe.pid = pid
+        print("server pid \(pid)")   // test-desktop.sh reads this line
+        var state = server.progress()
+        while state == .waiting { Thread.sleep(forTimeInterval: 0.25); state = server.progress() }
+        probe.check(state == .up, "the server answers (\(state))")
+        guard state == .up else { server.shutdown(); return probe.fails }
+
+        let app = NSApplication.shared
+        app.setActivationPolicy(.prohibited)   // no Dock icon, no window
+        app.delegate = probe
+        probe.quitPath.installSignalHandlers()
+        probe.sendSignals()
+        app.run()   // does not return: terminate ends the process in applicationWillTerminate
+        return probe.fails
+    }
+
+    private func sendSignals() {
+        let queue = DispatchQueue.global()
+        var elapsed = 0.0
+        for (delay, signal) in signals {
+            elapsed += delay
+            queue.asyncAfter(deadline: .now() + elapsed) {
+                let name = [SIGTERM: "SIGTERM", SIGINT: "SIGINT", SIGHUP: "SIGHUP"][signal] ?? String(signal)
+                print("      \(self.phase): sending \(name) to this process")
+                if self.firstSignalAt == nil { self.firstSignalAt = Date() }
+                kill(getpid(), signal)
+            }
+        }
+        queue.asyncAfter(deadline: .now() + elapsed + QuitProbe.exitLimit) {
+            self.check(false, "the process still runs \(Int(QuitProbe.exitLimit)) s after the last signal: the quit path is stuck")
+            self.server.queue.sync { self.server.shutdown() }
+            _exit(1)
+        }
+    }
+
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        return quitPath.shouldTerminate()
+    }
+
+    /// The last call before the process ends: the server must be stopped by now.
+    func applicationWillTerminate(_ notification: Notification) {
+        check(server.ownedPid == nil, "the app owns no server when it ends")
+        check(kill(pid, 0) != 0, "the server it started (pid \(pid)) is gone when it ends")
+        check(!server.isUp(), "the port is free when it ends")
+        if let start = firstSignalAt { print(String(format: "      %@: the app ended %.1f s after the first signal", phase, Date().timeIntervalSince(start))) }
+        exit(min(fails, 255))
+    }
 }
