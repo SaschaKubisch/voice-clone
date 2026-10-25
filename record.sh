@@ -5,11 +5,14 @@
 #   OUTPUT_PATH  default: voices/me.wav (relative to this script's folder)
 #   SECONDS      default: 100 (voice-script.md takes about 1.5 minutes to read)
 # Ctrl-C ends the recording early; what was recorded so far is kept.
+# Environment:
+#   VOICECLONE_MIC  the input to record from, a name or a number from
+#                   `ffmpeg -f avfoundation -list_devices true -i ""`. Default: "default", the input
+#                   that macOS has selected (System Settings, Sound, Input).
+# ffmpeg and ffprobe are taken from PATH, else from /opt/homebrew/bin.
 set -euo pipefail
 
-FFMPEG=/opt/homebrew/bin/ffmpeg
-FFPROBE=/opt/homebrew/bin/ffprobe
-DEVICE="MacBook Air Microphone"
+MIC="${VOICECLONE_MIC:-default}"
 
 cd "$(dirname "$0")"
 
@@ -23,6 +26,27 @@ if [ "$SECONDS_TO_RECORD" -lt 1 ]; then
   echo "error: seconds must be at least 1" >&2
   exit 2
 fi
+
+find_tool() {
+  local found
+  found="$(command -v "$1" 2>/dev/null || true)"
+  if [ -z "$found" ] && [ -x "/opt/homebrew/bin/$1" ]; then
+    found="/opt/homebrew/bin/$1"
+  fi
+  printf '%s' "$found"
+}
+FFMPEG="$(find_tool ffmpeg)"
+FFPROBE="$(find_tool ffprobe)"
+if [ -z "$FFMPEG" ] || [ -z "$FFPROBE" ]; then
+  echo "error: ffmpeg and ffprobe are needed and were not found. Install them with: brew install ffmpeg" >&2
+  exit 1
+fi
+
+# Prints the audio inputs, one per line, as "[number] name".
+list_inputs() {
+  { "$FFMPEG" -hide_banner -f avfoundation -list_devices true -i "" 2>&1 || true; } |
+    awk '/AVFoundation audio devices:/ { on = 1; next } on && /\] \[[0-9]+\] / { sub(/^\[[^]]*\] /, ""); print "  " $0 }'
+}
 
 # Same filter as app.py (TRIM_FILTER). The ends are padded with 0.5 s first, so a recording
 # with less silence still gets some. The end is trimmed by reversing the audio, trimming its
@@ -50,12 +74,17 @@ printf '..2'
 sleep 1
 printf '..1\n'
 sleep 1
+if [ "$MIC" = default ]; then
+  echo "Input: the default input of this Mac (set VOICECLONE_MIC to use another)"
+else
+  echo "Input: ${MIC} (from VOICECLONE_MIC)"
+fi
 echo "Speak now (${SECONDS_TO_RECORD} s, Ctrl-C to stop earlier)"
 
 # A handled SIGINT keeps this script alive after Ctrl-C; ffmpeg finishes the file itself.
 trap ':' INT
 "$FFMPEG" -hide_banner -loglevel error -y \
-  -f avfoundation -i ":${DEVICE}" \
+  -f avfoundation -i ":${MIC}" \
   -t "$SECONDS_TO_RECORD" \
   -ac 1 -ar 48000 -c:a pcm_s16le -f wav \
   "$RAW" || echo "Recording ended early (ffmpeg exit code $?)." >&2
@@ -63,7 +92,12 @@ trap - INT
 
 RAW_SECONDS="$(duration "$RAW")"
 if ! awk -v d="$RAW_SECONDS" 'BEGIN { exit !(d > 0) }'; then
-  echo "error: nothing was recorded" >&2
+  echo "error: nothing was recorded from the input '${MIC}'." >&2
+  echo "Audio inputs on this Mac (number and name):" >&2
+  list_inputs >&2
+  echo "Choose one by name or number and run, for example:" >&2
+  echo "  VOICECLONE_MIC=\"<name or number>\" bash record.sh" >&2
+  echo "If the list is empty, or ffmpeg reported a permission error, allow your Terminal app in System Settings, Privacy & Security, Microphone." >&2
   exit 1
 fi
 

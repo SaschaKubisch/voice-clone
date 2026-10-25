@@ -283,7 +283,14 @@ bash record.sh voices/myvoice.wav 150                    # another file name and
 
 `bash record.sh [OUTPUT_PATH] [SECONDS]` counts down from 3, then records the microphone for the given number of seconds, or until Ctrl-C, and keeps what was recorded. The default is `voices/me.wav` and 100 s. It cuts the silence at both ends the way the app does. It writes only the WAV, no transcript.
 
-The script records from the device named `MacBook Air Microphone` and uses `/opt/homebrew/bin/ffmpeg`. For another microphone, change `DEVICE` at the top of `record.sh`. To list the device names:
+The script records from the input that macOS has selected (System Settings, Sound, Input). To use another microphone, set `VOICECLONE_MIC` to its name or its number from the list below:
+
+```
+VOICECLONE_MIC="MacBook Air Microphone" bash record.sh
+VOICECLONE_MIC=2 bash record.sh voices/myvoice.wav
+```
+
+It takes `ffmpeg` and `ffprobe` from your `PATH`, and from `/opt/homebrew/bin` if `PATH` has none. If nothing was recorded, the script prints the audio inputs of this Mac and how to set `VOICECLONE_MIC`. To list the inputs yourself:
 
 ```
 ffmpeg -f avfoundation -list_devices true -i ""
@@ -463,7 +470,7 @@ What is kept out of git (`.gitignore`): `voices/*`, `outputs/`, every `*.wav`, `
 | "The Voice Clone folder was not found" | The folder moved or was deleted. The app points to the old place. Run `bash make-app.sh --install` in the folder where it is now. Quit the app first. |
 | Two Voice Clone entries in Launchpad | Launch Services registered the build copy in `macapp/build`, which `bash make-app.sh` (without `--install`) leaves there. Quit the app and run `bash make-app.sh --install` again. It deletes the build copy and unregisters it. |
 | The microphone does not work | In System Settings, Privacy & Security, Microphone, switch Voice Clone on. In a browser, allow the microphone for 127.0.0.1. Or upload a recording. See [Microphone permission](#microphone-permission). |
-| `record.sh` prints "Recording ended early" and "error: nothing was recorded" | The device name in the script does not exist on your Mac (see [record.sh](#recordsh)), or macOS has not allowed the microphone for the Terminal app. |
+| `record.sh` prints "Recording ended early" and "error: nothing was recorded" | The input does not exist, or macOS has not allowed the microphone for the Terminal app (System Settings, Privacy & Security, Microphone). The script prints the audio inputs it found. Pick one with `VOICECLONE_MIC` (see [record.sh](#recordsh)). |
 | "No voice named ... Record one in the first tab, or press Refresh." | Press Refresh voices. If the list stays empty, `voices/` has no `.wav` file. |
 | "Voice ... has no transcript. Choose 'Recording only (allows style prefix)'." | The voice has no `.txt` file, or it is empty. Save the voice again with a transcript, or use "Recording only". |
 | "A (style) prefix only works in 'Recording only (allows style prefix)'." | The text starts with `(`. Use "Recording only", or remove the parentheses. |
@@ -494,6 +501,7 @@ None of these use port 7860. Only `tests/test_fp16_audio.py` loads the whole mod
 | --- | --- | --- |
 | `tests/test_progress_hook.py` | The step counting in `voxcpm_patch.py`, with a stand-in model class. It also reads the installed voxcpm package as text, to see that its generation loop is still the one the patch expects. No model is loaded. | `.venv/bin/python tests/test_progress_hook.py` |
 | `tests/test_progress_ui.py` | The progress bar, with a stand-in model, on port 7861. With `--serve` it serves the stand-in interface until Ctrl-C. | `.venv/bin/python tests/test_progress_ui.py` |
+| `tests/test_record_sh.py` | How `record.sh` picks ffmpeg and the microphone, with stand-in `ffmpeg` and `ffprobe` scripts: the default input, `VOICECLONE_MIC` (a name with spaces, a number), the list printed after a failed recording. Nothing is recorded and the microphone is not opened. It takes about 4 s because each run of the script counts down 3 s. | `.venv/bin/python tests/test_record_sh.py` |
 | `tests/test_local_security.py` | The local-only protections, with a stand-in model, on port 7864: a request with a foreign Host header is refused and a normal one works; the Files tab plays and reveals only a `.wav` inside the output folder or `voices/` (not a file elsewhere, a non-wav, a symlink that points out, a path with `..`); `open -R --`; a recording or voice name taken from a path is refused. No model is loaded. | `.venv/bin/python tests/test_local_security.py` |
 | `tests/test_chunked_encode.py` | That the 20-second pieces of the reference encoding give the same result as one pass. It loads only the audio VAE from the cached VoxCPM2 files, and makes a 45 s clip with `say` and ffmpeg. | `.venv/bin/python tests/test_chunked_encode.py` |
 | `tests/test_fp16_audio.py` | That float16 output is speech, and the load time, memory and speed. It loads VoxCPM2 (see [Memory and speed](#memory-and-speed)), so quit the Mac app first. Options: `--dtype`, `--seed`, `--repeat`, `--workdir`, `--metrics-json`, `--ref`, `--ref-mode`, `--no-asr`. The first run downloads SenseVoiceSmall. | `.venv/bin/python tests/test_fp16_audio.py` |
@@ -535,6 +543,7 @@ macapp/test-desktop.sh         test of the desktop app's server rules
 tests/test_progress_hook.py    test of the step counting
 tests/test_progress_ui.py      test of the progress bar
 tests/test_local_security.py   test of the Host check and of the paths the Files tab accepts
+tests/test_record_sh.py        test of the input and tool lookup in record.sh
 tests/test_chunked_encode.py   test of the chunked reference encoding
 tests/test_fp16_audio.py       test of float16 speech, with measurements
 ```
