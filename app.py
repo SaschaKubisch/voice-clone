@@ -458,6 +458,7 @@ def build_ui():
                             "Pause briefly between sections. Stop recording about one second after the last word. "
                             "Or upload a file. Silence at the start and end is cut when you save."
                         )
+                        gr.Markdown("Record only your own voice, or a voice whose owner has given you permission to use it.")
                         # gr.Audio has no maximum recording length in Gradio 6.30.0.
                         recording = gr.Audio(
                             sources=["microphone", "upload"], type="filepath", label="Recording or upload"

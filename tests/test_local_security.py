@@ -18,6 +18,7 @@ What it does:
   6. The other handlers that take a path or a name from the page: save_voice cannot be pointed at a file
      on disk (Gradio accepts only files uploaded through the page), and speak refuses a voice name that
      is not a saved voice, such as one with ..
+  7. The Record voice tab names the rule about whose voice may be recorded.
 """
 import http.client
 import json
@@ -263,6 +264,17 @@ def check_other_handlers(client, voices, outputs, elsewhere):
     check(sorted(p.name for p in outputs.glob("*.wav")) == ["good.wav", "link-to-private.wav"], "speak wrote no file for a refused voice name")
 
 
+def check_responsible_use_line(demo):
+    texts = [
+        str(block.get("props", {}).get("value", ""))
+        for block in demo.get_config_file()["components"]
+        if block.get("type") == "markdown"
+    ]
+    lines = [t for t in texts if "permission" in t and "voice" in t]
+    check(bool(lines), f"the Record voice tab says whose voice may be recorded ({lines[0][:80]!r})" if lines else
+          "the Record voice tab says whose voice may be recorded")
+
+
 def main():
     root, voices, outputs, elsewhere = make_workdir()
     demo = start_ui(voices, outputs)
@@ -276,6 +288,7 @@ def main():
         check_show_file(client, voices, outputs, elsewhere, root)
         check_reveal_file(client, outputs, elsewhere)
         check_other_handlers(client, voices, outputs, elsewhere)
+        check_responsible_use_line(demo)
     finally:
         demo.close()
         shutil.rmtree(root, ignore_errors=True)

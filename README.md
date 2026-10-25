@@ -46,6 +46,10 @@ The screenshots come from a demo copy of the app with a stand-in model that spea
 - Command-line scripts: `record.sh` records a voice, `clone.py` speaks text, `demo.py` checks the install.
 - Everything runs on this Mac. Recordings, texts and generated audio never leave it. The only network use is downloading and checking software and models. See [Privacy](#privacy).
 
+## Responsible use
+
+Clone only your own voice, or the voice of a person who agreed to it. Say that audio you share is AI-generated. A recording and its transcript are enough to copy a voice, so keep the files in `voices/` private. The VoxCPM2 model card says: "Strictly forbidden to use for impersonation, fraud, or disinformation. AI-generated content should be clearly labeled." This project is not affiliated with OpenBMB, the maker of VoxCPM2.
+
 ## Requirements
 
 - A Mac with Apple Silicon. `install.sh` stops on any other machine, and on a terminal that runs under Rosetta.
@@ -84,6 +88,8 @@ What it does, in this order:
 3. **Python environment**: `.venv` in this folder, Python 3.11, with the packages of `requirements.txt`. An existing `.venv` with Python 3.11 is kept. Any other `.venv` is recreated.
 4. **Models**: VoxCPM2 and the denoiser, downloaded into the standard caches (see [Models and where they are stored](#models-and-where-they-are-stored)). They are downloaded, not loaded into memory. Files that are already complete are not downloaded again.
 5. **Mac app**: `/Applications/Voice Clone.app`, built by `make-app.sh --install`.
+
+Outside this folder the installer changes these things: it runs `brew install` for a missing uv or ffmpeg, replaces `/Applications/Voice Clone.app` and deletes the build copy in `macapp/build/` when it installs the Mac app, and the installed app writes the server log to `~/Library/Logs/VoiceClone/app.log`. Inside this folder it recreates a `.venv` that is not Python 3.11.
 
 If a step fails, the installer prints `install.sh: step N (name) failed: ...` and the reason. Fix the cause and run it again. Finished downloads are kept.
 
@@ -131,6 +137,8 @@ The page, titled "VoxCPM2 voice studio", is at http://127.0.0.1:7860. The server
 Open the Record voice tab. It shows `voice-script.md` on the left and the recording controls on the right.
 
 ![The Record voice tab after a voice was saved: the script on the left, the recording, the name Demo, the transcript, and the status line on the right](docs/screenshots/record-voice.png)
+
+The tab says to record only your own voice, or a voice whose owner has given you permission to use it (see [Responsible use](#responsible-use)). The screenshots do not show that line.
 
 1. Read `voice-script.md`. It has ten sections, one mood each: calm, happy, sad, surprised, cross, friendly, clear, tricky sounds, quiet then loud, calm and kind. The words are easy. All ten sections are 234 spoken words, about 1.5 minutes. The italic line under each heading is a reading direction. It is not read aloud.
 2. Press Record and read all ten sections in one take. Or use the small upload icon under the box and choose an audio file. The microphone icon next to it switches back.
@@ -421,7 +429,9 @@ Measured on the author's 16 GB Mac with other applications open, with a 20 s ref
 
 ## Privacy
 
-Voice recordings are sensitive. A recording of a voice and its transcript are enough to clone that voice, and that is what this tool does. Treat the files in `voices/` the way you treat anything that can be used to speak as you. Clone only voices you have permission to clone. The VoxCPM2 model card says: "Strictly forbidden to use for impersonation, fraud, or disinformation. AI-generated content should be clearly labeled."
+Voice recordings are sensitive. A recording of a voice and its transcript are enough to clone that voice, and that is what this tool does. Treat the files in `voices/` the way you treat anything that can be used to speak as you. Clone only voices you have permission to clone (see [Responsible use](#responsible-use)).
+
+To report a security problem, see [SECURITY.md](SECURITY.md).
 
 What stays on this Mac:
 
@@ -497,6 +507,7 @@ The two macapp tests refuse port 7860. `test-desktop.sh` also refuses 7861, whic
 ```
 README.md                      this file
 LICENSE                        the MIT license of the code in this repository
+SECURITY.md                    how the app is kept local, and how to report a problem
 install.sh                     one-command installer
 make-app.sh                    builds and installs "Voice Clone.app" (desktop or browser mode)
 start.command                  double-click start of the server in Terminal
